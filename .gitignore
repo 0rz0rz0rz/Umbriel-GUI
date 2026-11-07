@@ -1,0 +1,8 @@
+/.vscode/
+/Backup/
+/.venv/
+/umbriel_config_gui/data/
+__pycache__/
+*.py[cod]
+/scripts/
+/dist/
