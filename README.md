@@ -18,6 +18,15 @@ Cursor themes are discovered when opening Input using `XCURSOR_PATH`, or
 `~/.icons`, XDG icon directories and `/usr/share/pixmaps` if unset. Reopen the
 app to pick up newly installed themes.
 
+## Versions
+
+| Item | Version |
+| --- | --- |
+| Python GUI (`python/umbriel_config_gui/__init__.py`) | `0.1.0-002` |
+| AppImage (latest release) | `v0.1.0-001` |
+
+The version format is `<Umbriel version>-<three-digit GUI revision>`.
+
 ## Desktop settings
 
 The GUI also edits:
