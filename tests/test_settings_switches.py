@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 from umbriel_config_gui.common import MISSING
 from umbriel_config_gui.field_defs import F
 from umbriel_config_gui.settings import FieldWidget
-from umbriel_config_gui.widgets import SwitchCheckBox, TriStateControl
+from umbriel_config_gui.widgets import KdeColorControl, SwitchCheckBox, TriStateControl
 
 
 class SettingsSwitchTests(unittest.TestCase):
@@ -58,25 +58,33 @@ class SettingsSwitchTests(unittest.TestCase):
         QTest.keyClick(switch, Qt.Key.Key_Space)
         self.assertFalse(widget.w.isEnabled())
 
-    def test_selected_segment_has_four_rounded_corners(self):
-        control = TriStateControl()
-        palette = QPalette(control.palette())
-        palette.setColor(QPalette.ColorRole.Button, QColor("#202020"))
-        palette.setColor(QPalette.ColorRole.Highlight, QColor("#00ff00"))
-        control.setPalette(palette)
-        control.show()
-        self.addCleanup(control.close)
-        self.app.processEvents()
+    def test_selected_segments_round_only_the_outer_corners(self):
+        for control_type in (TriStateControl, KdeColorControl):
+            control = control_type()
+            palette = QPalette(control.palette())
+            palette.setColor(QPalette.ColorRole.Button, QColor("#202020"))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor("#00ff00"))
+            control.setPalette(palette)
+            control.show()
+            self.addCleanup(control.close)
+            self.app.processEvents()
 
-        for index in range(3):
-            with self.subTest(index=index):
-                control.setCurrentIndex(index)
-                image = control.grab().toImage()
-                left = 3 + 78 * index
-                self.assertEqual(image.pixelColor(left + 39, 5).name(), "#00ff00")
-                for x in (left + 1, left + 76):
-                    for y in (4, 35):
-                        self.assertNotEqual(image.pixelColor(x, y).name(), "#00ff00")
+            for index in range(3):
+                with self.subTest(control=control_type.__name__, index=index):
+                    control.setCurrentIndex(index)
+                    image = control.grab().toImage()
+                    left = 3 + 78 * index
+                    for y in (4, 34):
+                        self.assertEqual(image.pixelColor(left + 39, y).name(), "#00ff00")
+                        for offset, rounded in ((1, index == 0), (76, index == 2)):
+                            color = image.pixelColor(left + offset, y).name()
+                            if rounded:
+                                self.assertNotEqual(color, "#00ff00")
+                            else:
+                                self.assertEqual(color, "#00ff00")
+                    for x in (left - 3, left + 80):
+                        if 0 <= x < image.width():
+                            self.assertNotEqual(image.pixelColor(x, 19).name(), "#00ff00")
 
 
 if __name__ == "__main__":

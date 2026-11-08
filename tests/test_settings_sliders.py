@@ -5,8 +5,9 @@ from unittest.mock import patch
 
 import tomlkit
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from umbriel_config_gui import common, desktop, settings, state
 from umbriel_config_gui.common import MISSING
@@ -69,6 +70,107 @@ class SettingsSliderTests(unittest.TestCase):
         self.assertIsNone(widget.slider)
         widget.w.setValue(25)
         self.assertEqual(widget.get(), 25)
+
+    def test_title_bar_color_opacity_round_trip_and_palette_change(self):
+        for name in ("background", "background_unfocused"):
+            with self.subTest(name=name), patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}):
+                field = F(name, f"colors.title_bar.{name}", "color", "#112233FF", None, True)
+                widget = FieldWidget(field, "#12345680")
+                self.addCleanup(widget.close)
+                widget.show()
+                self.app.processEvents()
+                self.assertIs(widget.opacity_slider.parentWidget(), widget.opacity_widget)
+                self.assertEqual(widget.opacity_slider.value(), 128)
+                self.assertEqual(widget.opacity_spin.value(), 0.502)
+                widget.opacity_slider.setValue(0)
+                self.assertEqual(widget.get(), "#12345600")
+                widget.opacity_spin.setValue(1.0)
+                self.assertEqual(widget.get(), "#123456FF")
+                widget.set_color("#ABCDEF40")
+                self.assertEqual(widget.opacity_slider.value(), 64)
+                self.assertEqual(widget.opacity_spin.value(), 0.251)
+                palette = QPalette(widget.palette())
+                palette.setColor(QPalette.ColorRole.Window, QColor("#345678"))
+                widget.setPalette(palette)
+                self.app.processEvents()
+                self.assertEqual(widget.get(), "#ABCDEF40")
+                doc = tomlkit.parse("[colors.title_bar]\n" + name + " = '#12345680' # keep\n")
+                apply_fields(doc, [widget])
+                self.assertEqual(doc["colors"]["title_bar"][name], "#ABCDEF40")
+                self.assertIn("# keep", tomlkit.dumps(doc))
+                widget.check.setChecked(False)
+                self.assertFalse(widget.opacity_slider.isEnabled())
+                self.assertFalse(widget.opacity_spin.isEnabled())
+                apply_fields(doc, [widget])
+                self.assertNotIn(name, doc["colors"]["title_bar"])
+
+    def test_title_bar_unset_and_other_colors(self):
+        with patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}):
+            widget = FieldWidget(F("Background", "colors.title_bar.background", "color",
+                                   "#112233FF", None, True), MISSING)
+            other = FieldWidget(F("Text", "colors.title_bar.text", "color",
+                                  "#FFFFFFFF", None, True), "#FFFFFFFF")
+        self.addCleanup(widget.close)
+        self.addCleanup(other.close)
+        self.assertIsNone(widget.get())
+        self.assertFalse(widget.opacity_slider.isEnabled())
+        widget.check.setChecked(True)
+        self.assertTrue(widget.opacity_slider.isEnabled())
+        widget.opacity_spin.setValue(0.5)
+        self.assertEqual(widget.get(), "#11223380")
+        self.assertEqual(widget.opacity_spin.value(), 0.502)
+        self.assertIsNone(other.opacity_slider)
+
+    def test_title_bar_opacity_marks_window_dirty_and_saves(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.toml")
+            with open(path, "w", encoding="utf-8") as config:
+                config.write("[colors.title_bar]\nbackground = '#112233' # focused\n"
+                             "background_unfocused = '#445566AA' # unfocused\n")
+            with (
+                patch.object(state, "PATH", path),
+                patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}),
+                patch.object(common, "GUI_DATA_DIR", os.path.join(directory, "data")),
+                patch.object(settings, "_GROUP_EXPANSION_PATH", os.path.join(directory, "state.json")),
+                patch.object(settings, "_group_expansion_states", {}),
+                patch.object(desktop, "USER_DIRS", os.path.join(directory, "user-dirs.dirs")),
+                patch.object(desktop, "MIMEAPPS_PATH", os.path.join(directory, "mimeapps.list")),
+                patch.object(desktop, "installed_desktop_apps", return_value=[]),
+                patch("umbriel_config_gui.window.load_umbriel_schema", return_value={"options": []}),
+            ):
+                window = Window(path)
+                self.addCleanup(window.close)
+                window.rebuild_box.setChecked(False)
+                window.validate_box.setChecked(False)
+                window.side_tabs.nav.setCurrentRow(window.side_tabs.page_rows["Colors"])
+                window.show()
+                self.app.processEvents()
+                page = window.side_tabs.page_widgets["Colors"]
+                widgets = {
+                    field.f.path[-1]: field for field in page.findChildren(FieldWidget)
+                    if field.f.path[:2] == ("colors", "title_bar")
+                }
+                window._dirty = False
+                widgets["background"].set_kde_color(QColor("#AABBCC"), "test color")
+                widgets["background"].kde_source.activate(1)
+                self.assertTrue(window._dirty)
+                window._dirty = False
+                widgets["background"].set_kde_color(QColor("#112233"), "updated test color")
+                widgets["background"].kde_source.activate(1)
+                self.assertTrue(window._dirty)
+                window._dirty = False
+                widgets["background"].opacity_slider.setValue(128)
+                self.assertTrue(window._dirty)
+                widgets["background_unfocused"].opacity_spin.setValue(0.25)
+                with patch.object(window, "confirm_save_diff", return_value=True):
+                    self.assertTrue(window.save())
+                with open(path, encoding="utf-8") as config:
+                    text = config.read()
+                values = tomlkit.parse(text)["colors"]["title_bar"]
+                self.assertEqual(values["background"], "#11223380")
+                self.assertEqual(values["background_unfocused"], "#44556640")
+                self.assertIn("# focused", text)
+                self.assertIn("# unfocused", text)
 
     def test_slider_marks_window_dirty_and_saves(self):
         with tempfile.TemporaryDirectory() as directory:

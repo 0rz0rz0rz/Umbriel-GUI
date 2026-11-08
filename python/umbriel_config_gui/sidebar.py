@@ -375,6 +375,8 @@ class SideTabs(QWidget):
                         field_widget.search_form.setRowVisible(
                             field_widget.search_row, True
                         )
+                        if field_widget.opacity_row is not None:
+                            field_widget.search_form.setRowVisible(field_widget.opacity_row, True)
                         continue
 
                     group.rememberSearchState()
@@ -392,6 +394,8 @@ class SideTabs(QWidget):
                     field_widget.search_form.setRowVisible(
                         field_widget.search_row, matches
                     )
+                    if field_widget.opacity_row is not None:
+                        field_widget.search_form.setRowVisible(field_widget.opacity_row, matches)
                     if matches:
                         matched_fields.append(field_widget)
 

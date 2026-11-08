@@ -11,6 +11,7 @@ A desktop app for editing an Umbriel TOML config, keeping existing comments and 
 - Animation curves, effect presets and pools; outputs, rules, scratchpads, input-device overrides and environment variables
 - XDG user folders, default applications and MIME associations
 - Sliders for bounded settings, using installed Umbriel schema ranges when available
+- Title-bar background opacity controls, stored in the existing color values
 - Installed or custom cursor themes; **Schema coverage...** compares fields with the installed schema
 
 Cursor themes are discovered when opening Input using `XCURSOR_PATH`, or
@@ -96,6 +97,22 @@ AppImage and pip/venv installs cannot load the system qt6ct plugin. Instead, the
 This only runs when `QT_QPA_PLATFORMTHEME` is `qt6ct`/`qt5ct` and Qt has not already applied the theme. Set `UMBRIEL_QT_THEME=none` to disable it or `UMBRIEL_QT_THEME=qt6ct` to force it.
 
 The app also adjusts unreadable hint text, borders and selected labels, especially in light schemes.
+
+Title-bar background opacity is saved as the alpha component of the Umbriel color
+(``#RRGGBBAA``). Reloading the Qt palette only changes this app's appearance;
+it does not update Umbriel's config. If another tool generates or overrides
+title-bar colors, it must preserve or set their alpha when regenerating them.
+
+On the Colors page, unset title-bar background and text fields preview the
+active and inactive `[WM]` colors from the KDE scheme selected in qt6ct. These
+previews follow scheme changes while the page is open; they are not necessarily
+the colors Umbriel uses from its defaults or included files. For each background,
+**KDE TB** imports the colorful `[WM]` color, while **KDE BG** imports the matching
+active or inactive `[Colors:Header]` background for a cleaner look. **Default**
+unsets the override; a custom color has no selected segment. Text fields have a
+**Use KDE color** button. Importing preserves alpha. Existing overrides
+are never changed automatically. Saved overrides are static, so a later theme
+change requires importing again; the GUI does not rewrite files in the background.
 
 ### Launch with a keybind
 

@@ -164,12 +164,7 @@ class Window(QMainWindow):
         )
         self.setWindowIcon(create_app_icon())
         self.setWindowTitle(f"{APP_NAME} - {state.PATH}")
-        screen = QApplication.primaryScreen()
-        if screen is not None:
-            area = screen.availableGeometry()
-            self.resize(min(1500, area.width() - 40), min(950, area.height() - 40))
-        else:
-            self.resize(1400, 900)
+        self.resize(1920, 1080)
         app = QApplication.instance()
         if app is not None:
             app_font = QFont(app.font())
@@ -394,6 +389,7 @@ class Window(QMainWindow):
             widget.setProperty("dirtyTrackingConnected", True)
             if isinstance(widget, TriStateControl):
                 widget.valueChanged.connect(self.mark_dirty)
+                widget.activated.connect(self.mark_dirty)
             elif isinstance(widget, QLineEdit):
                 widget.textEdited.connect(self.mark_dirty)
             elif isinstance(widget, QPlainTextEdit):

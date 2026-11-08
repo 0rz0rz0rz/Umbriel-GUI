@@ -70,7 +70,9 @@ class TriStateControl(QWidget):
     """A segmented control for an optional boolean: default, on, or off."""
 
     LABELS = ("default", "on", "off")
+    ALLOW_NO_SELECTION = False
     valueChanged = Signal(int)
+    activated = Signal(int)
 
     def __init__(self):
         super().__init__()
@@ -93,12 +95,20 @@ class TriStateControl(QWidget):
 
     def setCurrentIndex(self, index):
         """Select default (0), on (1), or off (2)."""
-        if not 0 <= index < len(self.LABELS):
+        if not (-1 if self.ALLOW_NO_SELECTION else 0) <= index < len(self.LABELS):
             raise IndexError(f"Tri-state index out of range: {index}")
         if index != self._index:
             self._index = index
             self.update()
             self.valueChanged.emit(index)
+
+    def isSegmentEnabled(self, index):
+        return True
+
+    def activate(self, index):
+        if self.isSegmentEnabled(index):
+            self.setCurrentIndex(index)
+            self.activated.emit(index)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -116,15 +126,23 @@ class TriStateControl(QWidget):
 
         track = self.rect().adjusted(3, 3, -3, -3)
         segment_width = track.width() / len(self.LABELS)
-        selected_left = track.left() + segment_width * self._index
-        selected = QPainterPath()
-        selected.addRoundedRect(
-            selected_left, track.top(), segment_width, track.height(),
-            track.height() / 2, track.height() / 2,
-        )
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(palette.color(QPalette.ColorRole.Highlight))
-        painter.drawPath(selected)
+        if self._index >= 0:
+            selected_left = track.left() + segment_width * self._index
+            clip = QPainterPath()
+            clip.addRoundedRect(
+                track.left(), track.top(), track.width(), track.height(),
+                track.height() / 2, track.height() / 2,
+            )
+            painter.save()
+            painter.setClipPath(clip)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(palette.color(QPalette.ColorRole.Highlight))
+            painter.drawRect(
+                QRect(round(selected_left), track.top(),
+                      round(track.left() + segment_width * (self._index + 1)) - round(selected_left),
+                      track.height())
+            )
+            painter.restore()
 
         painter.setPen(palette.color(QPalette.ColorRole.Midlight))
         for divider_index in (1, 2):
@@ -141,6 +159,8 @@ class TriStateControl(QWidget):
             painter.setFont(font)
             painter.setPen(
                 palette.color(
+                    QPalette.ColorGroup.Active if self.isSegmentEnabled(index)
+                    else QPalette.ColorGroup.Disabled,
                     QPalette.ColorRole.HighlightedText
                     if index == self._index
                     else QPalette.ColorRole.Text
@@ -154,7 +174,7 @@ class TriStateControl(QWidget):
                 len(self.LABELS) - 1,
                 max(0, int((event.position().x() - 3) / (self.width() - 6) * len(self.LABELS))),
             )
-            self.setCurrentIndex(index)
+            self.activate(index)
             self.setFocus()
             event.accept()
             return
@@ -162,16 +182,20 @@ class TriStateControl(QWidget):
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Up):
-            self.setCurrentIndex(max(0, self._index - 1))
+            candidates = range(max(0, self._index - 1), -1, -1)
         elif event.key() in (Qt.Key.Key_Right, Qt.Key.Key_Down):
-            self.setCurrentIndex(min(len(self.LABELS) - 1, self._index + 1))
+            candidates = range(max(0, self._index + 1), len(self.LABELS))
         elif event.key() == Qt.Key.Key_Home:
-            self.setCurrentIndex(0)
+            candidates = range(len(self.LABELS))
         elif event.key() == Qt.Key.Key_End:
-            self.setCurrentIndex(len(self.LABELS) - 1)
+            candidates = range(len(self.LABELS) - 1, -1, -1)
         else:
             super().keyPressEvent(event)
             return
+        for index in candidates:
+            if self.isSegmentEnabled(index):
+                self.activate(index)
+                break
         event.accept()
 
     def enterEvent(self, event):
@@ -183,6 +207,24 @@ class TriStateControl(QWidget):
         self._hovered = False
         self.update()
         super().leaveEvent(event)
+
+
+class KdeColorControl(TriStateControl):
+    """Color import choices; no selection represents a custom override."""
+
+    LABELS = ("Default", "KDE TB", "KDE BG")
+    ALLOW_NO_SELECTION = True
+
+    def __init__(self):
+        super().__init__()
+        self._available = [True, False, False]
+
+    def isSegmentEnabled(self, index):
+        return self._available[index]
+
+    def setSegmentAvailable(self, index, available):
+        self._available[index] = available
+        self.update()
 
 
 class WrappedLabel(QLabel):

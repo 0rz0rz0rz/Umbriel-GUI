@@ -44,8 +44,10 @@ from .common import (
     write_text_file,
 )
 from .schema import field_schema_option
+from .kde_titlebar import KdeTitleBarFollower, TITLE_BAR_KEYS
 from .widgets import (
     FlowLayout,
+    KdeColorControl,
     OverviewButton,
     SettingLabel,
     SettingRow,
@@ -139,7 +141,7 @@ FIELD_HELP = {
     "Ignored device paths": "List DRM device paths Umbriel should not use.",
     "Ignored PCI addresses": "List PCI addresses of DRM devices Umbriel should not use.",
     "Required include files": "Load these additional configuration files; a missing file is an error.",
-    "Optional include files": "Load these additional configuration files when present; missing files are ignored. The GUI keeps noctalia.toml before titlebar.toml.",
+    "Optional include files": "Load these additional configuration files when present; missing files are ignored.",
     "Prefer server-side decorations": "Prefer window decorations drawn by the compositor over client-side decorations.",
     "Opacity while dragging": "Set window opacity while the window is being dragged.",
     "Opaque fullscreen": "Render fullscreen windows without transparency.",
@@ -353,6 +355,42 @@ class FieldWidget(QWidget):
             self.w.clicked.connect(self.pick_color)
         else:  # str, strorlist, list, raw
             self.w = QLineEdit()
+        self.opacity_slider = None
+        self.opacity_spin = None
+        self.opacity_widget = None
+        self.opacity_check = None
+        self.opacity_row = None
+        self.kde_color = None
+        self.kde_background = None
+        self.kde_button = None
+        self.kde_source = None
+        self.kde_messages = ["", ""]
+        if field.path in TITLE_BAR_KEYS and field.path not in (
+            ("colors", "title_bar", "background"),
+            ("colors", "title_bar", "background_unfocused"),
+        ):
+            self.kde_button = QPushButton("Use KDE color")
+            self.kde_button.setEnabled(False)
+            self.kde_button.clicked.connect(self.use_kde_color)
+        if field.path in (
+            ("colors", "title_bar", "background"),
+            ("colors", "title_bar", "background_unfocused"),
+        ):
+            self.kde_source = KdeColorControl()
+            self.kde_source.setAccessibleName(f"{field.label} color source")
+            self.kde_source.activated.connect(self.select_kde_source)
+            self.opacity_slider = SettingSlider()
+            self.opacity_slider.setRange(0, 255)
+            self.opacity_slider.setPageStep(26)
+            self.opacity_slider.setAccessibleName(f"{field.label} opacity")
+            self.opacity_spin = QDoubleSpinBox()
+            self.opacity_spin.setRange(0.0, 1.0)
+            self.opacity_spin.setDecimals(3)
+            self.opacity_spin.setSingleStep(0.01)
+            self.opacity_spin.setFixedWidth(80)
+            self.opacity_spin.setAccessibleName(f"{field.label} opacity")
+            self.opacity_slider.valueChanged.connect(self.set_opacity_from_slider)
+            self.opacity_spin.valueChanged.connect(self.set_opacity)
         if not self.tri:
             self.w.setMinimumWidth(0)
         self.slider = None
@@ -392,13 +430,49 @@ class FieldWidget(QWidget):
         if field.opt and not self.tri:
             self.check = SwitchCheckBox()
             self.check.setToolTip("Tick to write this setting to your config. Unticked = Umbriel's built-in default.")
+            if self.kde_button is not None or self.kde_source is not None:
+                self.check.setToolTip(
+                    "Tick to write this color. When unticked, the KDE color is a preview only; "
+                    "Umbriel uses its default or an included config."
+                )
+                self.check.toggled.connect(self.update_kde_preview)
+            if self.kde_source is not None:
+                self.check.toggled.connect(self.sync_kde_source)
             self.check.toggled.connect(self.w.setEnabled)
             if self.slider is not None:
                 self.check.toggled.connect(self.slider.setEnabled)
+            if self.opacity_slider is not None:
+                self.check.toggled.connect(self.opacity_slider.setEnabled)
+                self.check.toggled.connect(self.opacity_spin.setEnabled)
             lay.addWidget(self.check)
         if self.slider is not None:
             lay.addWidget(self.slider)
-        lay.addWidget(self.w)
+        if self.opacity_slider is not None:
+            lay.addWidget(self.kde_source)
+            lay.addWidget(self.w)
+            self.opacity_widget = QWidget()
+            opacity_layout = QHBoxLayout(self.opacity_widget)
+            opacity_layout.setContentsMargins(0, 0, 0, 0)
+            if self.check is not None:
+                self.opacity_check = SwitchCheckBox()
+                self.opacity_check.setToolTip("Tick to write this color's opacity. Same switch as the color above.")
+                self.check.toggled.connect(self.opacity_check.setChecked)
+                self.opacity_check.toggled.connect(self.check.setChecked)
+                opacity_layout.addWidget(self.opacity_check)
+            self.opacity_slider.setMaximumWidth(16777215)
+            self.opacity_slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            opacity_layout.addWidget(self.opacity_slider, 1)
+            opacity_layout.addWidget(self.opacity_spin)
+            self.opacity_help = QToolButton()
+            self.opacity_help.setText("?")
+            self.opacity_help.setAutoRaise(True)
+            self.opacity_help.setFixedSize(20, 20)
+            self.opacity_help.setAccessibleName(f"Help for {field.label} opacity")
+            opacity_layout.addWidget(self.opacity_help)
+        else:
+            if self.kde_button is not None:
+                lay.addWidget(self.kde_button)
+            lay.addWidget(self.w)
         self.help_button = QToolButton()
         self.help_button.setText("?")
         self.help_button.setAutoRaise(True)
@@ -417,6 +491,9 @@ class FieldWidget(QWidget):
                 self.w.setEnabled(False)
                 if self.slider is not None:
                     self.slider.setEnabled(False)
+                if self.opacity_slider is not None:
+                    self.opacity_slider.setEnabled(False)
+                    self.opacity_spin.setEnabled(False)
         else:
             self.set_value(py(current) if k not in ("raw", "strorlist") else current)
             if self.check:
@@ -435,11 +512,93 @@ class FieldWidget(QWidget):
                                   QColorDialog.ColorDialogOption.ShowAlphaChannel)
         if c.isValid():
             self.set_color(hexof(c))
+            if self.kde_source is not None:
+                self.kde_source.setCurrentIndex(-1)
 
     def set_color(self, h):
         """Show a color on the button: background in the chosen color, text black or white for readability."""
         self.w.setText(h)
         self.w.setStyleSheet(f"background:{h[:7]};color:{'#000' if qcolor(h).lightness() > 128 else '#fff'}")
+        if self.opacity_slider is not None:
+            alpha = qcolor(h).alpha()
+            self.opacity_slider.blockSignals(True)
+            self.opacity_slider.setValue(alpha)
+            self.opacity_slider.blockSignals(False)
+            self.opacity_spin.blockSignals(True)
+            self.opacity_spin.setValue(alpha / 255)
+            self.opacity_spin.blockSignals(False)
+
+    def set_opacity(self, value):
+        color = qcolor(self.w.text())
+        color.setAlpha(round(value * 255))
+        self.set_color(hexof(color))
+
+    def set_opacity_from_slider(self, value):
+        self.opacity_spin.setValue(value / 255)
+
+    def set_kde_color(self, color, message):
+        self.kde_color = color
+        if self.kde_source is not None:
+            self.kde_source.setSegmentAvailable(1, color is not None)
+            self.kde_messages[0] = f"KDE TB: {message}"
+            self.update_kde_source_tooltip()
+        else:
+            self.kde_button.setEnabled(color is not None)
+            self.kde_button.setToolTip(
+                message if color is not None else message + "; this field was not changed."
+            )
+        if color is not None and self.check and not self.check.isChecked():
+            self.preview_kde_color()
+
+    def preview_kde_color(self):
+        color = qcolor(hexof(self.kde_color))
+        color.setAlpha(qcolor(self.w.text()).alpha())
+        self.set_color(hexof(color))
+
+    def use_kde_color(self):
+        if self.kde_color is not None:
+            self.preview_kde_color()
+            if self.check:
+                self.check.setChecked(True)
+
+    def set_kde_background(self, color, message):
+        self.kde_background = color
+        self.kde_source.setSegmentAvailable(2, color is not None)
+        self.kde_messages[1] = f"KDE BG: {message}"
+        self.update_kde_source_tooltip()
+
+    def use_kde_background(self):
+        if self.kde_background is not None:
+            color = qcolor(hexof(self.kde_background))
+            color.setAlpha(qcolor(self.w.text()).alpha())
+            self.set_color(hexof(color))
+            if self.check:
+                self.check.setChecked(True)
+
+    def update_kde_preview(self, checked):
+        if not checked and self.kde_color is not None:
+            self.preview_kde_color()
+
+    def update_kde_source_tooltip(self):
+        self.kde_source.setToolTip(
+            "Default unsets the override. KDE TB and KDE BG import colors; "
+            "no selected segment means a custom override.\n" + "\n".join(self.kde_messages)
+        )
+
+    def sync_kde_source(self, checked):
+        if not checked:
+            self.kde_source.setCurrentIndex(0)
+        elif self.kde_source.currentIndex() == 0:
+            self.kde_source.setCurrentIndex(-1)
+
+    def select_kde_source(self, index):
+        if index == 0:
+            if self.check:
+                self.check.setChecked(False)
+        elif index == 1:
+            self.use_kde_color()
+        elif index == 2:
+            self.use_kde_background()
 
     def set_value(self, v):
         """Put a value into the widget, converting it to whatever the widget type needs."""
@@ -963,6 +1122,7 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
 
     section_buttons = []
     section_groups = []
+    kde_fields = []
     saved_expansion_states = load_group_expansion_states().get(category, {})
     group_page = QWidget()
     group_page.setMinimumWidth(0)
@@ -995,6 +1155,8 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
                 current = normalize_optional_includes(py(current))
             schema_path = ".".join(part for part in (schema_prefix, ".".join(f.path)) if part)
             fw = FieldWidget(f, current, schema_path)
+            if category == "Colors" and f.path in TITLE_BAR_KEYS:
+                kde_fields.append(fw)
             if f.kind == "str" and fw.schema_option and fw.schema_option.get("format") == "effect":
                 fw.w.setPlaceholderText("Effect preset name")
             elif f.kind in ("list", "strorlist"):
@@ -1034,6 +1196,16 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
             fw.search_row = row_widget
             store.append(fw)
             box.form.addRow(row_widget)
+            if fw.opacity_widget is not None:
+                opacity_title = QLabel(f"{f.label} opacity")
+                opacity_title.setFont(title_font)
+                opacity_description = WrappedLabel("Color opacity: 0.0 is transparent, 1.0 is opaque.")
+                opacity_description.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+                opacity_row = SettingRow(SettingLabel(opacity_title, opacity_description), fw.opacity_widget)
+                fw.opacity_row = opacity_row
+                fw.opacity_help.setToolTip("Color opacity: 0.0 is transparent, 1.0 is opaque.")
+                fw.opacity_widget.setFixedWidth(fw.sizeHint().width())
+                box.form.addRow(opacity_row)
         group_layout.addWidget(box, 0, Qt.AlignmentFlag.AlignTop)
 
         section_button = QToolButton()
@@ -1107,5 +1279,8 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
             group.setExpanded(expand)
 
     overview.clicked.connect(toggle_all_groups)
+
+    if kde_fields:
+        page.kde_titlebar_follower = KdeTitleBarFollower(kde_fields, page)
 
     return page
