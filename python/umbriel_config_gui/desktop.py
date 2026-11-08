@@ -1,6 +1,7 @@
 """Editors for XDG user folders and default applications."""
 
 from .common import (
+    QAbstractItemView,
     QComboBox,
     QFileDialog,
     QFont,
@@ -10,7 +11,6 @@ from .common import (
     QLabel,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -323,6 +323,20 @@ class UserDirs(QWidget):
         self.orig.update({n: v for n, v in vals.items()})
 
 
+class _DefaultAppRolesTable(QTableWidget):
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resize_mime_column()
+
+    def resize_mime_column(self, *_args):
+        width = max(
+            self.sizeHintForColumn(2),
+            self.viewport().width() - self.columnWidth(0) - self.columnWidth(1),
+        )
+        if self.columnWidth(2) != width:
+            self.setColumnWidth(2, width)
+
+
 class DefaultApps(QWidget):
     """Edits XDG default application associations in the user's mimeapps.list."""
 
@@ -354,7 +368,7 @@ class DefaultApps(QWidget):
         layout.addLayout(app_controls)
 
         layout.addWidget(QLabel("Common app roles"))
-        self.roles = QTableWidget(len(DEFAULT_APP_ROLES), 3)
+        self.roles = _DefaultAppRolesTable(len(DEFAULT_APP_ROLES), 3)
         tidy_table(self.roles)
         self.roles.setHorizontalHeaderLabels(["Role", "Application ID", "MIME types"])
         self.roles.horizontalHeaderItem(0).setToolTip("Common application purpose.")
@@ -367,8 +381,10 @@ class DefaultApps(QWidget):
             1, QHeaderView.ResizeMode.ResizeToContents
         )
         self.roles.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Stretch
+            2, QHeaderView.ResizeMode.Fixed
         )
+        self.roles.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.roles.horizontalScrollBar().setFixedHeight(8)
         self.role_initial = {}
         self.role_mimes = {}
         for row, (role, mimes) in enumerate(DEFAULT_APP_ROLES):
@@ -381,27 +397,12 @@ class DefaultApps(QWidget):
             types_text = ", ".join(mimes)
             types_item = QTableWidgetItem(types_text)
             types_item.setFlags(types_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            types_item.setToolTip(types_text)
             self.roles.setItem(row, 0, role_item)
             self.roles.setCellWidget(row, 1, create_app_selector(self.apps, value))
-            types_scroll = QScrollArea()
-            types_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-            types_scroll.setWidgetResizable(False)
-            types_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-            types_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            types_label = QLabel(types_text)
-            label_height = types_label.fontMetrics().height() + 4
-            types_scroll.setFixedHeight(
-                label_height + types_scroll.horizontalScrollBar().sizeHint().height()
-            )
-            self.roles.setRowHeight(row, max(self.roles.rowHeight(row), types_scroll.height()))
-            types_label.setFixedSize(
-                types_label.fontMetrics().horizontalAdvance(types_text) + 8,
-                label_height,
-            )
-            types_scroll.setWidget(types_label)
-            types_scroll.setToolTip(types_text)
             self.roles.setItem(row, 2, types_item)
-            self.roles.setCellWidget(row, 2, types_scroll)
+        self.roles.horizontalHeader().sectionResized.connect(self.roles.resize_mime_column)
+        self.roles.resize_mime_column()
         layout.addWidget(self.roles)
 
         layout.addWidget(QLabel("Other MIME type defaults"))
