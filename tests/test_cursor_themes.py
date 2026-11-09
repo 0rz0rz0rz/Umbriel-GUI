@@ -6,8 +6,9 @@ from unittest.mock import patch
 import tomlkit
 from PySide6.QtWidgets import QApplication
 
-from umbriel_config_gui import common, desktop, field_defs, settings, state
+from umbriel_config_gui import common, desktop, field_defs, field_widget, settings_layout, state
 from umbriel_config_gui.common import MISSING
+from umbriel_config_gui.field_widget import FieldWidget, apply_fields, installed_cursor_themes
 from umbriel_config_gui.window import Window
 
 
@@ -36,7 +37,7 @@ class CursorThemeTests(unittest.TestCase):
                        os.path.join(data_home, "icons", "Linked"))
             env = {"HOME": home, "XDG_DATA_HOME": data_home, "XDG_DATA_DIRS": data_dir}
             with patch.dict(os.environ, env, clear=True):
-                themes = settings.installed_cursor_themes()
+                themes = installed_cursor_themes()
             self.assertEqual(
                 [name for name in themes if name in {"default", "Legacy", "Linked", "System", "User", "IconOnly"}],
                 ["default", "Legacy", "Linked", "System", "User"],
@@ -49,18 +50,18 @@ class CursorThemeTests(unittest.TestCase):
             os.makedirs(os.path.join(home, ".icons", "Ignored", "cursors"))
             env = {"HOME": home, "XCURSOR_PATH": os.pathsep.join(["~/custom", os.path.join(home, "missing")])}
             with patch.dict(os.environ, env, clear=True):
-                self.assertEqual(settings.installed_cursor_themes(), ["Custom"])
+                self.assertEqual(installed_cursor_themes(), ["Custom"])
 
     def test_selection_custom_values_and_optional_save(self):
         field = next(field for title, fields in field_defs.TABS["Input"] if title == "Cursor"
                      for field in fields if field.path == ("input", "cursor", "theme"))
         with (
-            patch.object(settings, "installed_cursor_themes", return_value=["Alpha", "Beta"]),
+            patch.object(field_widget, "installed_cursor_themes", return_value=["Alpha", "Beta"]),
             patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {
                 "input.cursor.theme": {"values": ["schema-value"]}
             }),
         ):
-            widget = settings.FieldWidget(field, "Previously configured")
+            widget = FieldWidget(field, "Previously configured")
             self.addCleanup(widget.close)
             self.assertTrue(widget.w.isEditable())
             self.assertEqual(widget.w.currentText(), "Previously configured")
@@ -69,17 +70,17 @@ class CursorThemeTests(unittest.TestCase):
             self.assertEqual(widget.w.findText("schema-value"), -1)
             doc = tomlkit.parse('[input.cursor]\ntheme = "Previously configured"\n')
             widget.w.setCurrentText("Beta")
-            settings.apply_fields(doc, [widget])
+            apply_fields(doc, [widget])
             self.assertEqual(doc["input"]["cursor"]["theme"], "Beta")
             widget.w.setEditText("My custom theme")
-            settings.apply_fields(doc, [widget])
+            apply_fields(doc, [widget])
             self.assertEqual(doc["input"]["cursor"]["theme"], "My custom theme")
             widget.check.setChecked(False)
             self.assertIsNone(widget.get())
-            settings.apply_fields(doc, [widget])
+            apply_fields(doc, [widget])
             self.assertNotIn("theme", doc["input"]["cursor"])
 
-            unset = settings.FieldWidget(field, MISSING)
+            unset = FieldWidget(field, MISSING)
             self.addCleanup(unset.close)
             self.assertIsNone(unset.get())
             self.assertFalse(unset.w.isEnabled())
@@ -90,8 +91,8 @@ class CursorThemeTests(unittest.TestCase):
     def test_empty_theme_search_still_allows_custom_input(self):
         field = next(field for title, fields in field_defs.TABS["Input"] if title == "Cursor"
                      for field in fields if field.path == ("input", "cursor", "theme"))
-        with patch.object(settings, "installed_cursor_themes", return_value=[]):
-            widget = settings.FieldWidget(field, "custom")
+        with patch.object(field_widget, "installed_cursor_themes", return_value=[]):
+            widget = FieldWidget(field, "custom")
         self.addCleanup(widget.close)
         self.assertEqual(widget.get(), "custom")
         widget.w.setEditText("another")
@@ -106,9 +107,9 @@ class CursorThemeTests(unittest.TestCase):
                 patch.object(state, "PATH", path),
                 patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}),
                 patch.object(common, "GUI_DATA_DIR", os.path.join(directory, "data")),
-                patch.object(settings, "_GROUP_EXPANSION_PATH", os.path.join(directory, "state.json")),
-                patch.object(settings, "_group_expansion_states", {}),
-                patch.object(settings, "installed_cursor_themes", return_value=["Alpha", "Beta"]),
+                patch.object(settings_layout, "_GROUP_EXPANSION_PATH", os.path.join(directory, "state.json")),
+                patch.object(settings_layout, "_group_expansion_states", {}),
+                patch.object(field_widget, "installed_cursor_themes", return_value=["Alpha", "Beta"]),
                 patch.object(desktop, "USER_DIRS", os.path.join(directory, "user-dirs.dirs")),
                 patch.object(desktop, "MIMEAPPS_PATH", os.path.join(directory, "mimeapps.list")),
                 patch.object(desktop, "installed_desktop_apps", return_value=[]),
@@ -122,7 +123,7 @@ class CursorThemeTests(unittest.TestCase):
                 window.side_tabs.nav.setCurrentRow(window.side_tabs.page_rows["Input"])
                 self.app.processEvents()
                 page = window.side_tabs.page_widgets["Input"]
-                widget = next(field for field in page.findChildren(settings.FieldWidget)
+                widget = next(field for field in page.findChildren(FieldWidget)
                               if field.f.path == ("input", "cursor", "theme"))
                 window._dirty = False
                 widget.w.setCurrentText("Beta")

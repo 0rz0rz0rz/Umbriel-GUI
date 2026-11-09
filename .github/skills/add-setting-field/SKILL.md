@@ -8,7 +8,7 @@ description: "Use when adding, renaming, or removing a single GUI setting (an F(
 1. Find the sibling: `grep -n "<sibling.toml.path>" python/umbriel_config_gui/field_defs.py`, then view about 30 lines around the hit.
 2. Add `F(label, "dotted.toml.path", kind, default, extra, opt)` next to it in the same group. `kind` is one of `bool`, `int`, `float`, `color`, `choice`, `combo`, `str`, `list`, `strorlist`, `command_list`, `raw`. `extra` is the `(min, max)` range for numbers or the option list for choices. Use `opt=True` for keys that are absent by default.
 3. For a choice list, add or reuse a constant near the top of `field_defs.py` (e.g. `ON_OFF`, `LAYOUTS`).
-4. Optional help text: add the path to `FIELD_HELP` in `settings.py` (grep for a sibling there). Skip it if the schema description is enough.
+4. Optional help text: add the path to `FIELD_HELP` in `setting_help.py` (grep for a sibling there). Skip it if the schema description is enough.
 5. Get type, default, range and description from `umbriel config schema --json`; do not guess.
 6. Verify with the `verify-changes` skill. `--check-schema` must still report 0 unsupported and 0 stale.
 

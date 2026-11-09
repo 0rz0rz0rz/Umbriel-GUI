@@ -12,4 +12,4 @@ description: "Use when Umbriel was updated or the GUI may be out of date: compar
 5. Re-run the check until it reports `0 unsupported option(s), 0 stale GUI field(s)`, then run the tests (see `verify-changes`).
 6. If the Umbriel version changed, set `__version__` in `python/umbriel_config_gui/__init__.py` to `<new Umbriel version>-001`.
 
-Do not read `field_defs.py` or `settings.py` whole. Work from grep hits and short view ranges.
+Do not read `field_defs.py` whole. `settings.py` is only a compatibility facade; work from grep hits and short view ranges in the owning modules.

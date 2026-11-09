@@ -80,10 +80,9 @@ from .field_defs import (
     WORKSPACE_RULE_GROUPS,
 )
 from .schema import check_schema_coverage, load_umbriel_schema
-from .settings import (
-    FieldWidget,
+from .field_widget import FieldWidget, apply_fields
+from .settings_layout import (
     SIDEBAR_SECTIONS,
-    apply_fields,
     form_page,
 )
 from .widgets import TriStateControl
@@ -599,10 +598,10 @@ class Window(QMainWindow):
             self,
             "Unsaved changes",
             "Save your changes before closing?",
-            QMessageBox.StandardButton.Save
-            | QMessageBox.StandardButton.Discard
+            QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Save
             | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Save,
+            QMessageBox.StandardButton.Discard,
         )
         if choice == QMessageBox.StandardButton.Save:
             if self.save():
@@ -1188,6 +1187,7 @@ def main(argv=None):
         QMessageBox.critical(None, "Cannot open config", str(e))
         return 1
     app.win.show()
+    app.win.side_tabs.preloadPages()
     return app.exec()
 
 

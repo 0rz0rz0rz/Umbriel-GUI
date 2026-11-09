@@ -3,10 +3,12 @@
 from .common import (
     ENV_NAME_RE,
     MISSING,
+    QAbstractItemView,
     QFont,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPalette,
     QPushButton,
     QTabWidget,
     QTableWidget,
@@ -41,11 +43,59 @@ def fmt_opts(o):
 
 
 def tidy_table(t):
-    """Calmer table look: no grid lines, alternating row shading, roomier rows, no row numbers."""
-    t.setAlternatingRowColors(True)
+    """Match the app's compact table styling with subtle border emphasis instead of filled selection blocks."""
+    palette = t.palette()
+    base = palette.color(QPalette.ColorRole.Base)
+    border = palette.color(QPalette.ColorRole.Mid)
+    header = palette.color(QPalette.ColorRole.Button)
+    header_text = palette.color(QPalette.ColorRole.ButtonText)
+    text = palette.color(QPalette.ColorRole.Text)
+    highlight = palette.color(QPalette.ColorRole.Highlight)
+
+    t.setAlternatingRowColors(False)
     t.setShowGrid(False)
+    t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    t.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+    t.setStyleSheet(
+        f"QTableWidget {{"
+        f"  background: {base.name()};"
+        f"  color: {text.name()};"
+        f"  border: 1px solid {border.name()};"
+        f"  border-radius: 10px;"
+        f"  gridline-color: transparent;"
+        f"  selection-background-color: transparent;"
+        f"  selection-color: {text.name()};"
+        f"}}"
+        f"QTableWidget::item {{"
+        f"  padding: 6px 8px;"
+        f"  border: 0;"
+        f"  border-radius: 6px;"
+        f"}}"
+        f"QTableWidget::item:selected {{"
+        f"  background: transparent;"
+        f"  border: 2px solid {highlight.name()};"
+        f"  border-radius: 6px;"
+        f"  padding: 0;"
+        f"}}"
+        f"QHeaderView::section {{"
+        f"  background: {header.name()};"
+        f"  color: {header_text.name()};"
+        f"  padding: 8px 10px;"
+        f"  border: 0;"
+        f"  border-bottom: 1px solid {border.name()};"
+        f"  border-radius: 0;"
+        f"  font-weight: 600;"
+        f"}}"
+        f"QHeaderView::section:horizontal {{"
+        f"  border-right: 1px solid {border.name()};"
+        f"}}"
+        f"QHeaderView::section:vertical {{"
+        f"  border-bottom: 1px solid {border.name()};"
+        f"}}"
+    )
     t.verticalHeader().setVisible(False)
     t.verticalHeader().setDefaultSectionSize(34)
+    t.horizontalHeader().setMinimumHeight(34)
 
 
 class KVTable(QWidget):

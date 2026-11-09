@@ -11,7 +11,7 @@ Keep responses and changes small; the rules below exist to save tokens and credi
 
 ## Navigating the code
 
-- Module map: field specs `field_defs.py`, schema `schema.py`, form widgets `widgets.py`, form/FieldWidget `settings.py`, tables `tables.py`, keybinds `keybinds.py`, user dirs/default apps `desktop.py`, sidebar `sidebar.py`, entry editor `editors.py`. Largest: `window.py`, `settings.py`, `common.py` (~1000-1200 lines). Never read them whole. Use grep for `^class |^def |    def ` to locate a symbol, then view only that range.
+- Module map: field specs `field_defs.py`, schema `schema.py`, shared controls `widgets.py`, field widgets `field_widget.py`, settings help `setting_help.py`, page layout `settings_layout.py`, tables `tables.py`, keybinds `keybinds.py`, user dirs/default apps `desktop.py`, sidebar `sidebar.py`, entry editor `editors.py`. Largest: `window.py` and `common.py` (~1000-1200 lines). Never read them whole. Use grep for `^class |^def |    def ` to locate a symbol, then view only that range.
 - Ignore `__pycache__/`, `dist/`, `.venv/`, and the binary assets.
 
 ### Quick lookup (what lives where and how it connects)
@@ -22,7 +22,10 @@ Keep responses and changes small; the rules below exist to save tokens and credi
 | Config read/write, TOML edits | `common.py` | `read_config_state`, `rebuild_config`, `getp`/`putp`/`delp`, `create_backup_snapshot`, `parse_cli_args` |
 | Field definitions (what settings exist) | `field_defs.py` | `F`, `Field`, `layout_fields`, `color_group`, `anim`, `regroup` |
 | Schema from installed Umbriel | `schema.py` | `load_umbriel_schema`, `schema_field_catalog`, `check_schema_coverage` |
-| Setting rows and form pages | `settings.py` | `FieldWidget`, `form_page`, `CollapsibleGroup`, `apply_fields`, `setting_description` |
+| Field controls and config write-back | `field_widget.py` | `FieldWidget`, `apply_fields`, `installed_cursor_themes` |
+| Help text for settings | `setting_help.py` | `FIELD_HELP`, `GROUP_HELP`, `CATEGORY_HELP`, `setting_description` |
+| Settings pages and collapsible groups | `settings_layout.py` | `form_page`, `CollapsibleGroup`, `SIDEBAR_SECTIONS`, group expansion state |
+| Compatibility imports | `settings.py` | Re-exports settings symbols from their owning modules |
 | Shared controls | `widgets.py` | `SettingRow`, `SettingLabel`, `SwitchCheckBox`, `TriStateControl`, `KdeColorControl`, `SettingSlider`, `FlowLayout` |
 | Title bar KDE colors | `kde_titlebar.py` | `read_title_bar_colors`, `KdeTitleBarFollower` |
 | Table and map editors | `tables.py` | `KVTable`, `RawValueMapEditor`, `AnimationCurvesPage`, `EffectsPage` |
@@ -34,18 +37,18 @@ Keep responses and changes small; the rules below exist to save tokens and credi
 | Qt palette from qt6ct/KDE | `qt6ct_theme.py` | `apply_qt6ct_theme`, `Qt6ctThemeFollower`, `build_palette` |
 | Readable palettes, icons, paths | `common.py` | `readable_palette`, `PaletteReadability`, `create_app_icon`, `normalize_config_path` |
 
-Data flow: `field_defs.py` declares each field; `schema.py` checks it against Umbriel; `form_page` in `settings.py` builds one `FieldWidget` per field from `widgets.py` controls; `common.py` reads and writes the TOML with `getp`/`putp`; `window.py` ties the pages, save, and diff review together.
+Data flow: `field_defs.py` declares each field; `schema.py` checks it against Umbriel; `form_page` in `settings_layout.py` builds one `FieldWidget` from `field_widget.py` per field using controls from `widgets.py`; `setting_help.py` supplies consistent field, group, and page descriptions; `common.py` reads and writes TOML with `getp`/`putp`; `window.py` ties pages, save, and diff review together.
 
 ### Where specific things live
 
 | Question | Answer |
 | --- | --- |
 | Which pages/tabs exist, and their groups and fields | `TABS[<page>] = [(group title, [F(...), ...]), ...]` in `field_defs.py`; `window.py` builds one lazy `form_page` per `TABS` key |
-| Sidebar order and sections | `SIDEBAR_SECTIONS` in `settings.py` (user reorder saved via `sidebar.py`) |
-| Help text under a label or in a `?` tooltip | `FIELD_HELP` (by field label), `GROUP_HELP` (by group title), `CATEGORY_HELP` (by page) in `settings.py`; `setting_description` assembles it. Search matches this text |
+| Sidebar order and sections | `SIDEBAR_SECTIONS` in `settings_layout.py` (user reorder saved via `sidebar.py`) |
+| Help text under a label or in a `?` tooltip | `FIELD_HELP` (by field label), `GROUP_HELP` (by group title), `CATEGORY_HELP` (by page) in `setting_help.py`; `setting_description` assembles it. Search matches this text |
 | Field kinds (`F(..., kind, ...)`) | `bool`, `int`, `float`, `str`, `choice`, `combo`, `color`, `list`, `strorlist`, `raw`, `command_list`; handled in `FieldWidget.__init__`, `set_value`, `get` |
 | `opt=True` | Row gets an on/off switch (`FieldWidget.check`); `get()` returns `None` when off, so `apply_fields` deletes the key. A `bool` with `opt` becomes a 3-state control (`self.tri`: unset/on/off) |
-| What gets written on save | `apply_fields(doc, fws)` in `settings.py`: writes only keys whose value changed (or optional ones); then `add_entry_name_comments` and `rebuild_config` in `common.py` |
+| What gets written on save | `apply_fields(doc, fws)` in `field_widget.py`: writes only keys whose value changed (or optional ones); then `add_entry_name_comments` and `rebuild_config` in `common.py` |
 | Save pipeline | `Window.save` in `window.py`: validate editors, `apply_fields`, `tomlkit.dumps`, `rebuild_config`, diff review (`confirm_save_diff`), `create_backup_snapshot`, `write_text_file`, then `umbriel config validate` in the background (`validated`) |
 | Dirty tracking | `Window.track_page_changes` and `mark_dirty` |
 | Title bar background/text colors and KDE import | `TITLE_BAR_KEYS`/`BACKGROUND_KEYS` in `kde_titlebar.py`; the `kde_*`, `opacity_*` methods and `KdeColorControl` in `FieldWidget`. Background colors also get an opacity row built in `form_page` (`fw.opacity_widget`/`opacity_row`) |
@@ -61,7 +64,7 @@ Data flow: `field_defs.py` declares each field; `schema.py` checks it against Um
 
 - Tests in `tests/` are one file per area (`test_settings_sliders.py`, `test_settings_switches.py`, `test_save_workflow.py`, `test_kde_titlebar.py`, ...). Patch `state.PATH` and `state.ACTIVE_SCHEMA_OPTIONS` with `patch.object`, not real config files.
 - Skills in `.github/skills/`: `add-setting-field`, `add-test`, `build-appimage`, `edit-controls`, `split-module`, `sync-umbriel-schema`, `verify-changes`.
-- `settings.py`, `window.py` and `common.py` are all over the 800-line guideline; do not grow them further without using `split-module`.
+- `window.py` and `common.py` are over the 800-line guideline; do not grow them further without using `split-module`. `settings.py` is a small compatibility facade; its implementation lives in `field_widget.py`, `setting_help.py`, and `settings_layout.py`.
 ## Saving credits
 
 - Start with the smallest tool that answers: grep (use `output_mode: count` or `files_with_matches` first), then a short `view_range`. Batch independent reads and independent `edit` calls on the same file into one response. Review your own changes with `git diff --stat` or `git diff <file>`, not by viewing whole files.
@@ -72,19 +75,6 @@ Data flow: `field_defs.py` declares each field; `schema.py` checks it against Um
 - Run only the tests needed to validate the change, starting with the smallest relevant selection. If a test fails, add or run focused tests to isolate the cause before broadening the run; run the full suite only when the change or failure scope requires it.
 - Never view `LICENSE`, `docs/screenshot.png`, `appimage/` build output, or generated files.
 - Ask one concise question only when a choice changes behavior; otherwise decide and state the assumption.
-
-### Model by task
-
-| Task | Model |
-| --- | --- |
-| Git commit, push, status checks | Claude Haiku 5.5, low effort, 100K context |
-| AppImage build (run the script, report failures) | Claude Haiku 5.5, low effort, 100K context |
-| Code changes in the main session | Claude Sonnet 5.5 |
-| Hard bugs or refactors across modules | GPT-6.1 Terra, or Claude Sonnet 5.5 |
-| Code review before a commit | Claude Sonnet 5.5 |
-| Large searches or summaries across many files | Gemini 3.8 Flash |
-
-Use the cheapest model that can do the task. Escalate only when the cheaper model fails or the change needs more reasoning.
 
 ### Avoid these credit-wasting patterns
 

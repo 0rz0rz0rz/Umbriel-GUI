@@ -7,12 +7,12 @@ import tomlkit
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy
 
-from umbriel_config_gui import common, desktop, settings, state
+from umbriel_config_gui import common, desktop, settings_layout, state
 from umbriel_config_gui.common import MISSING
 from umbriel_config_gui.field_defs import F
-from umbriel_config_gui.settings import FieldWidget, apply_fields
+from umbriel_config_gui.field_widget import FieldWidget, apply_fields
 from umbriel_config_gui.window import Window
 
 
@@ -70,6 +70,14 @@ class SettingsSliderTests(unittest.TestCase):
         self.assertIsNone(widget.slider)
         widget.w.setValue(25)
         self.assertEqual(widget.get(), 25)
+
+    def test_list_fields_expand_with_window_width(self):
+        field = F("Required include files", "include.files", "list", [], None, True)
+        with patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}):
+            widget = FieldWidget(field, [])
+        self.assertEqual(widget.w.sizePolicy().horizontalPolicy(), QSizePolicy.Policy.Expanding)
+        self.assertGreater(widget.w.maximumWidth(), 460)
+        self.assertEqual(widget.get(), [])
 
     def test_title_bar_color_opacity_round_trip_and_palette_change(self):
         for name in ("background", "background_unfocused"):
@@ -131,8 +139,8 @@ class SettingsSliderTests(unittest.TestCase):
                 patch.object(state, "PATH", path),
                 patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}),
                 patch.object(common, "GUI_DATA_DIR", os.path.join(directory, "data")),
-                patch.object(settings, "_GROUP_EXPANSION_PATH", os.path.join(directory, "state.json")),
-                patch.object(settings, "_group_expansion_states", {}),
+                patch.object(settings_layout, "_GROUP_EXPANSION_PATH", os.path.join(directory, "state.json")),
+                patch.object(settings_layout, "_group_expansion_states", {}),
                 patch.object(desktop, "USER_DIRS", os.path.join(directory, "user-dirs.dirs")),
                 patch.object(desktop, "MIMEAPPS_PATH", os.path.join(directory, "mimeapps.list")),
                 patch.object(desktop, "installed_desktop_apps", return_value=[]),
@@ -187,8 +195,8 @@ class SettingsSliderTests(unittest.TestCase):
                 patch.object(state, "PATH", path),
                 patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}),
                 patch.object(common, "GUI_DATA_DIR", os.path.join(directory, "data")),
-                patch.object(settings, "_GROUP_EXPANSION_PATH", os.path.join(directory, "state.json")),
-                patch.object(settings, "_group_expansion_states", {}),
+                patch.object(settings_layout, "_GROUP_EXPANSION_PATH", os.path.join(directory, "state.json")),
+                patch.object(settings_layout, "_group_expansion_states", {}),
                 patch.object(desktop, "USER_DIRS", os.path.join(directory, "user-dirs.dirs")),
                 patch.object(desktop, "MIMEAPPS_PATH", os.path.join(directory, "mimeapps.list")),
                 patch.object(desktop, "installed_desktop_apps", return_value=[]),

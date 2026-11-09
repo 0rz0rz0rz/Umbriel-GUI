@@ -6,7 +6,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QVBoxLayout, QWidget
 
 from umbriel_config_gui.common import apply_interaction_styles
-from umbriel_config_gui.settings import CollapsibleGroup
+from umbriel_config_gui.settings_layout import CollapsibleGroup
 
 
 class SettingsCardTests(unittest.TestCase):

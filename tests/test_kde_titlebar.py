@@ -9,9 +9,10 @@ from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from umbriel_config_gui import kde_titlebar, settings, state
+from umbriel_config_gui import field_widget, kde_titlebar, settings_layout, state
 from umbriel_config_gui.field_defs import TABS
-from umbriel_config_gui.settings import apply_fields, form_page
+from umbriel_config_gui.field_widget import apply_fields
+from umbriel_config_gui.settings_layout import form_page
 
 
 class KdeTitleBarTests(unittest.TestCase):
@@ -42,7 +43,7 @@ class KdeTitleBarTests(unittest.TestCase):
             with (
                 patch.object(kde_titlebar, "qt6ct_config_path", return_value=config),
                 patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}),
-                patch.object(settings, "load_group_expansion_states", return_value={}),
+                patch.object(settings_layout, "load_group_expansion_states", return_value={}),
             ):
                 page = form_page([title_bar], doc, fields, category="Colors")
                 self.addCleanup(page.deleteLater)
@@ -107,7 +108,7 @@ class KdeTitleBarTests(unittest.TestCase):
             with (
                 patch.object(kde_titlebar, "qt6ct_config_path", return_value=config),
                 patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}),
-                patch.object(settings, "load_group_expansion_states", return_value={}),
+                patch.object(settings_layout, "load_group_expansion_states", return_value={}),
             ):
                 page = form_page([title_bar], tomlkit.parse(""), fields, category="Colors")
                 self.addCleanup(page.deleteLater)
@@ -134,7 +135,7 @@ class KdeTitleBarTests(unittest.TestCase):
             with (
                 patch.object(kde_titlebar, "qt6ct_config_path", return_value=config),
                 patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}),
-                patch.object(settings, "load_group_expansion_states", return_value={}),
+                patch.object(settings_layout, "load_group_expansion_states", return_value={}),
             ):
                 page = form_page([title_bar], tomlkit.parse(""), fields, category="Colors")
                 self.addCleanup(page.deleteLater)
@@ -151,7 +152,7 @@ class KdeTitleBarTests(unittest.TestCase):
                 self.assertIn("unavailable", field.kde_source.toolTip())
 
     def test_pill_mouse_keyboard_and_custom_color(self):
-        field = settings.FieldWidget(
+        field = field_widget.FieldWidget(
             next(field for title, fields in TABS["Colors"] if title == "Title bar"
                  for field in fields if field.path[-1] == "background"),
             "#11223380",
@@ -167,7 +168,7 @@ class KdeTitleBarTests(unittest.TestCase):
         self.assertEqual((source.currentIndex(), field.get()), (1, "#44556680"))
         QTest.keyClick(source, Qt.Key.Key_Right)
         self.assertEqual((source.currentIndex(), field.get()), (2, "#77889980"))
-        with patch.object(settings.QColorDialog, "getColor", return_value=QColor("#AABBCC")):
+        with patch.object(field_widget.QColorDialog, "getColor", return_value=QColor("#AABBCC")):
             field.pick_color()
         self.assertEqual(source.currentIndex(), -1)
         self.assertEqual(field.get(), "#AABBCCFF")

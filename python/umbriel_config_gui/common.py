@@ -284,6 +284,13 @@ RESERVED_ENV = {
 class WheelSafeComboBox(QComboBox):
     """Prevent accidental value changes from scrolling over a closed dropdown."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setStyleSheet(
+            "QComboBox { background: palette(base); color: palette(text); border: 1px solid transparent; border-radius: 6px; padding: 2px 8px; }"
+            "QComboBox:focus, QComboBox:focus-visible { border: 1px solid transparent; }"
+        )
+
     def wheelEvent(self, event):
         if not self.view().isVisible():
             event.ignore()

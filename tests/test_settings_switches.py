@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from umbriel_config_gui.common import MISSING
 from umbriel_config_gui.field_defs import F
-from umbriel_config_gui.settings import FieldWidget
+from umbriel_config_gui.field_widget import FieldWidget
 from umbriel_config_gui.widgets import KdeColorControl, SwitchCheckBox, TriStateControl
 
 

@@ -4,7 +4,6 @@ from . import state
 from .common import (
     MISSING,
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFont,
@@ -21,6 +20,7 @@ from .common import (
     QVBoxLayout,
     QWidget,
     Qt,
+    WheelSafeComboBox,
     copy,
     ensure_table,
     getp,
@@ -33,10 +33,8 @@ from .common import (
     tomlkit,
     totext,
 )
-from .settings import (
-    apply_fields,
-    form_page,
-)
+from .field_widget import apply_fields
+from .settings_layout import form_page
 
 
 class EntryEditor(QWidget):
@@ -360,14 +358,14 @@ class EntryEditor(QWidget):
             """Add a compact, full-width labeled selector."""
             title = QLabel(label)
             picker.setSizeAdjustPolicy(
-                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+                WheelSafeComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
             )
             picker.setMinimumContentsLength(minimum_length)
             picker.setToolTip(label)
             layout.addWidget(title)
             layout.addWidget(picker)
 
-        output_picker = QComboBox()
+        output_picker = WheelSafeComboBox()
         for output in outputs:
             name = output["name"]
             identity = output.get("config_name")
@@ -382,9 +380,9 @@ class EntryEditor(QWidget):
         details.setFont(intro_font)
         layout.addWidget(QLabel("Current state"))
         layout.addWidget(details)
-        key_picker = QComboBox()
+        key_picker = WheelSafeComboBox()
         add_selector("Config entry key", key_picker, 38)
-        mode_picker = QComboBox()
+        mode_picker = WheelSafeComboBox()
         add_selector("Mode", mode_picker, 24)
         enable_output = QCheckBox("Set enabled = true")
         layout.addWidget(enable_output)

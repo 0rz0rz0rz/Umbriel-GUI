@@ -25,11 +25,11 @@ from .common import (
     write_text_file,
 )
 from .editors import EntryEditor
-from .settings import (
-    CATEGORY_HELP,
+from .field_widget import FieldWidget
+from .setting_help import CATEGORY_HELP
+from .settings_layout import (
     SETTING_SECTION_BUTTON_HEIGHT,
     SETTING_SECTION_BUTTON_FONT_SIZE,
-    FieldWidget,
 )
 
 
@@ -348,6 +348,21 @@ class SideTabs(QWidget):
         """Build all deferred pages for operations that inspect every page."""
         for name in tuple(self._lazy_pages):
             self._materialize_page(name)
+
+    def preloadPages(self):
+        """Build deferred pages one per event-loop tick so the UI stays responsive."""
+        def step():
+            if not self._lazy_pages:
+                return
+            current = self.stack.currentWidget()
+            for name in tuple(self._lazy_pages):
+                if self.page_widgets.get(name) is not current:
+                    self._materialize_page(name)
+                    break
+            else:
+                return
+            QTimer.singleShot(0, step)
+        QTimer.singleShot(0, step)
 
     def update_search_results(self, query):
         """Filter existing option pages in place, preserving their normal layout."""
