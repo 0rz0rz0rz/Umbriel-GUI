@@ -1,0 +1,31 @@
+"""Application-wide styles for interactive controls."""
+
+
+def apply_interaction_styles(app):
+    """Apply hover highlights and borderless, palette-aware vertical scrollbars."""
+    app.setStyleSheet(
+        "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit {"
+        " background: palette(base); color: palette(text);"
+        " border: 1px solid palette(midlight); border-radius: 7px;"
+        " padding: 4px 7px; }"
+        "QPushButton { border: 1px solid palette(midlight);"
+        " border-radius: 7px; padding: 4px 8px; }"
+        "QPushButton:hover, QToolButton:hover {"
+        " border: 2px solid palette(highlight);"
+        " border-radius: 5px;"
+        "}"
+        "QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover,"
+        " QPlainTextEdit:hover {"
+        " border: 2px solid palette(highlight);"
+        " border-radius: 5px;"
+        "}"
+        "QScrollBar:vertical { background: palette(window); border: none;"
+        " width: 20px; margin: 0; }"
+        "QScrollBar::handle:vertical { background: palette(light);"
+        " border-radius: 4px; margin: 0 6px; min-height: 24px; }"
+        "QScrollBar::handle:vertical:hover { background: palette(placeholder-text); }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical"
+        " { height: 0; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical"
+        " { background: palette(window); }"
+    )

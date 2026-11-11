@@ -3,6 +3,7 @@
 from .common import (
     GUI_DATA_DIR,
     QAbstractItemView,
+    QEvent,
     QFrame,
     QFont,
     QFontMetrics,
@@ -18,6 +19,7 @@ from .common import (
     QSize,
     QStackedWidget,
     QTimer,
+    QVBoxLayout,
     QWidget,
     Qt,
     json,
@@ -27,14 +29,15 @@ from .common import (
 from .editors import EntryEditor
 from .field_widget import FieldWidget
 from .setting_help import CATEGORY_HELP
+from .sidebar_icons import sidebar_icon
 from .settings_layout import (
     SETTING_SECTION_BUTTON_HEIGHT,
     SETTING_SECTION_BUTTON_FONT_SIZE,
 )
+from .widgets import SwitchCheckBox
 
 
 SIDEBAR_ORDER_PATH = os.path.join(GUI_DATA_DIR, "gui-sidebar-order.json")
-
 
 def load_sidebar_order(default_order):
     """Load the user-defined Umbriel settings order, preserving newly added pages."""
@@ -87,6 +90,15 @@ class _SidebarListWidget(QListWidget):
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
 
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.PaletteChange:
+            for row in range(self.count()):
+                item = self.item(row)
+                name = item.data(Qt.ItemDataRole.UserRole)
+                if isinstance(name, str):
+                    item.setIcon(sidebar_icon(name, self.palette()))
+
     def dropEvent(self, event):
         source_row = self.currentRow()
         target_row = self.indexAt(event.position().toPoint()).row()
@@ -126,21 +138,23 @@ class SideTabs(QWidget):
         self.page_rows = {}
         self.page_widgets = {}
         self._lazy_pages = {}
+        self._search_fields = {}
+        self._search_generation = 0
         self._row_names = {}
         self._separator_rows = set()
         self.settings_title = QLabel("Settings")
         title_font = QFont(self.settings_title.font())
         title_font.setBold(True)
-        title_font.setPointSize(13)
+        title_font.setPointSize(10)
         self.settings_title.setFont(title_font)
-        self.settings_title.setContentsMargins(8, 4, 8, 8)
+        self.settings_title.setContentsMargins(4, 2, 4, 2)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search settings...")
         self.search.setClearButtonEnabled(True)
         self.search.setStyleSheet(
             "QLineEdit {"
             " background: palette(window);"
-            " border: 2px solid palette(midlight);"
+            " border: 1px solid palette(midlight);"
             " border-radius: 8px;"
             " padding: 5px 8px;"
             "}"
@@ -150,10 +164,11 @@ class SideTabs(QWidget):
         self.nav.setToolTip("Drag Umbriel settings to change their order.")
         self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.nav.setIconSize(QSize(16, 16))
         self.base_font = QFont(self.nav.font())
         self.base_font.setPointSize(SETTING_SECTION_BUTTON_FONT_SIZE)
         self.nav.setFont(self.base_font)
-        item_height = SETTING_SECTION_BUTTON_HEIGHT - 2 * (4 + 2)
+        item_height = SETTING_SECTION_BUTTON_HEIGHT - 2 * (3 + 2)
         self.nav_scrollbar = QScrollBar(Qt.Orientation.Vertical)
         self.nav_scrollbar.setFixedWidth(self.nav_scrollbar.sizeHint().width())
         scrollbar_policy = self.nav_scrollbar.sizePolicy()
@@ -166,9 +181,9 @@ class SideTabs(QWidget):
         self.nav.setStyleSheet(
             "QListWidget { background: transparent; border: 0; outline: 0; }"
             "QListWidget::item {"
-            f" height: {item_height}px; padding: 4px 10px;"
-            " margin: 3px 6px;"
-            " border: 2px solid transparent; border-radius: 10px; }"
+            f" height: {item_height}px; padding: 2px 8px;"
+            " margin: 1px 3px;"
+            " border: 1px solid transparent; border-radius: 8px; }"
             "QListWidget::item:hover { background: palette(midlight);"
             " color: palette(text); }"
             "QListWidget::item:selected {"
@@ -182,7 +197,33 @@ class SideTabs(QWidget):
         self.no_results.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.no_results.setForegroundRole(QPalette.ColorRole.PlaceholderText)
         self.content.addWidget(self.no_results)
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+        filter_bar = QHBoxLayout()
+        self.filter_bar = filter_bar
+        filter_bar.setContentsMargins(18, 4, 18, 0)
+        filter_bar.addStretch()
+        filter_label = QLabel("Overridden")
+        self.overridden = SwitchCheckBox()
+        self.overridden.setAccessibleName("Show overridden settings only")
+        self.overridden.setToolTip(
+            "Show settings whose current values differ from their schema defaults "
+            "(or the GUI defaults when schema metadata is unavailable). "
+            "Unset settings are hidden; non-field editors are not filtered. "
+            "Values inherited from included configs are not resolved."
+        )
+        filter_label.setBuddy(self.overridden)
+        filter_bar.addWidget(filter_label)
+        filter_bar.addWidget(self.overridden)
+        right_layout.addLayout(filter_bar)
+        right_layout.addWidget(self.content, 1)
         self._updating_search = False
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(150)
+        self._search_timer.timeout.connect(self._apply_search_results)
         left = QWidget()
         left.setObjectName("settingsSidebar")
         left.setAutoFillBackground(True)
@@ -198,12 +239,17 @@ class SideTabs(QWidget):
         left_layout.addWidget(self.nav_scrollbar, 2, 1)
         left_layout.setRowStretch(2, 1)
         lay.addWidget(left)
-        lay.addWidget(self.content, 1)
+        lay.addWidget(right, 1)
         self._sync_navigation_scrollbar(
             internal_scrollbar.minimum(), internal_scrollbar.maximum()
         )
         self.nav.currentRowChanged.connect(self.show_row)
         self.search.textChanged.connect(self.update_search_results)
+        self.overridden.toggled.connect(self.update_search_results)
+
+    def set_schema_bar(self, schema_bar):
+        """Keep schema information available in the page toolbar."""
+        self.filter_bar.insertLayout(0, schema_bar, 1)
 
     def _sync_navigation_scrollbar(self, minimum, maximum):
         """Mirror the hidden list scrollbar in the sidebar's outer edge."""
@@ -251,7 +297,7 @@ class SideTabs(QWidget):
             default=0,
         )
         item_spacing = (
-            2 * (10 + 2 + 6)
+            2 * (8 + 1 + 3) + self.nav.iconSize().width() + 4
             + 2 * self.nav.frameWidth()
         )
         nav_width = label_width + item_spacing
@@ -260,7 +306,7 @@ class SideTabs(QWidget):
             self.search.fontMetrics().horizontalAdvance(self.search.placeholderText())
             + search_chrome_width
         )
-        content_width = max(nav_width, search_width)
+        content_width = max(nav_width, search_width) + 12
         margins = self.left_panel.layout().contentsMargins()
         self.left_panel.setFixedWidth(
             content_width
@@ -277,6 +323,8 @@ class SideTabs(QWidget):
             page_name = self._row_names[row]
             self._materialize_page(page_name)
             self.stack.setCurrentIndex(self.pages[row])
+            if self.overridden.isChecked():
+                self.update_search_results(self.search.text())
 
     def addTab(self, widget, name):
         """Add a page under `name`; the first page added is selected automatically."""
@@ -302,6 +350,7 @@ class SideTabs(QWidget):
     def _add_tab(self, widget, name, factory=None):
         row = self.nav.count()
         item = QListWidgetItem(name)
+        item.setIcon(sidebar_icon(name, self.nav.palette()))
         help_text = CATEGORY_HELP.get(name, f"Configure {name.lower()} settings.")
         if row >= 3:
             help_text += "\nDrag to reorder settings."
@@ -323,8 +372,15 @@ class SideTabs(QWidget):
     def _watch_entry_editor(self, widget):
         if isinstance(widget, EntryEditor):
             widget.list.currentRowChanged.connect(
-                lambda _row: self.update_search_results(self.search.text())
+                lambda _row, page=widget: self._entry_selection_changed(page)
             )
+
+    def _entry_selection_changed(self, page):
+        for name, registered_page in self.page_widgets.items():
+            if registered_page is page:
+                self._search_fields.pop(name, None)
+                break
+        self.update_search_results(self.search.text())
 
     def _materialize_page(self, name):
         factory = self._lazy_pages.get(name)
@@ -337,6 +393,7 @@ class SideTabs(QWidget):
         placeholder.deleteLater()
         self.pages[self.page_rows[name]] = self.stack.insertWidget(index, widget)
         self.page_widgets[name] = widget
+        self._search_fields.pop(name, None)
         del self._lazy_pages[name]
         self._watch_entry_editor(widget)
 
@@ -365,11 +422,38 @@ class SideTabs(QWidget):
         QTimer.singleShot(0, step)
 
     def update_search_results(self, query):
-        """Filter existing option pages in place, preserving their normal layout."""
+        """Debounce search updates before filtering settings pages."""
         if self._updating_search:
             return
-        if query.strip():
-            self.ensureAllPages()
+        self._search_generation += 1
+        self._search_timer.start()
+
+    def _apply_search_results(self):
+        """Build deferred pages incrementally before applying a cross-page search."""
+        query = self.search.text()
+        generation = self._search_generation
+        if query.strip() and self._lazy_pages:
+            self._materialize_search_page(generation, query)
+            return
+        self._filter_search_results(query)
+
+    def _materialize_search_page(self, generation, query):
+        if generation != self._search_generation:
+            return
+        if not query.strip():
+            self._filter_search_results(query)
+            return
+        name = next(iter(self._lazy_pages), None)
+        if name is None:
+            self._filter_search_results(query)
+            return
+        self._materialize_page(name)
+        QTimer.singleShot(
+            0, lambda: self._materialize_search_page(generation, query)
+        )
+
+    def _filter_search_results(self, query):
+        """Filter materialized option pages, preserving their normal layout."""
         self._updating_search = True
         try:
             query = query.strip().casefold()
@@ -380,13 +464,21 @@ class SideTabs(QWidget):
             for row in self._separator_rows:
                 self.nav.item(row).setHidden(bool(query))
             for page_name, page in self.page_widgets.items():
-                fields = page.findChildren(FieldWidget)
-                matched_fields = []
+                fields = self._search_fields.get(page_name)
+                if fields is None:
+                    fields = tuple(page.findChildren(FieldWidget))
+                    self._search_fields[page_name] = fields
+                    for field_widget in fields:
+                        if not field_widget.property("sidebarFilterConnected"):
+                            field_widget.valueChanged.connect(self._field_changed)
+                            field_widget.setProperty("sidebarFilterConnected", True)
                 groups = set()
+                matched_groups = set()
+                filtering = bool(query) or self.overridden.isChecked()
                 for field_widget in fields:
                     group = field_widget.search_group
                     groups.add(group)
-                    if not query:
+                    if not filtering:
                         field_widget.search_form.setRowVisible(
                             field_widget.search_row, True
                         )
@@ -395,42 +487,57 @@ class SideTabs(QWidget):
                         continue
 
                     group.rememberSearchState()
-                    path = ".".join(field_widget.f.path)
-                    searchable = " ".join(
-                        (
-                            field_widget.f.label,
-                            path,
-                            field_widget.search_group_title,
-                            page_name,
-                            field_widget.help_button.toolTip(),
-                        )
-                    ).casefold()
-                    matches = all(term in searchable for term in terms)
+                    searchable = getattr(field_widget, "_sidebar_search_text", None)
+                    if searchable is None:
+                        searchable = " ".join(
+                            (
+                                field_widget.f.label,
+                                ".".join(field_widget.f.path),
+                                field_widget.search_group_title,
+                                page_name,
+                                field_widget.help_button.toolTip(),
+                            )
+                        ).casefold()
+                        field_widget._sidebar_search_text = searchable
+                    matches = all(term in searchable for term in terms) and (
+                        not self.overridden.isChecked() or field_widget.is_overridden()
+                    )
                     field_widget.search_form.setRowVisible(
                         field_widget.search_row, matches
                     )
                     if field_widget.opacity_row is not None:
                         field_widget.search_form.setRowVisible(field_widget.opacity_row, matches)
                     if matches:
-                        matched_fields.append(field_widget)
+                        matched_groups.add(group)
 
-                if query:
+                if filtering:
                     for group in groups:
-                        group_matches = any(
-                            field_widget.search_group is group
-                            for field_widget in matched_fields
-                        )
+                        group_matches = group in matched_groups
                         group.setVisible(group_matches)
+                        if hasattr(group, "section_button"):
+                            group.section_button.setVisible(group_matches)
                         if group_matches:
                             group.setExpanded(True)
                 else:
                     for group in groups:
                         group.restoreSearchState()
+                        if hasattr(group, "section_button"):
+                            group.section_button.setVisible(True)
+                notices = {
+                    group.filter_notice for group in groups
+                    if hasattr(group, "filter_notice")
+                }
+                for notice in notices:
+                    notice.setVisible(
+                        self.overridden.isChecked()
+                        and not any(group.filter_notice is notice for group in matched_groups
+                                    if hasattr(group, "filter_notice"))
+                    )
 
-                if matched_fields:
+                if matched_groups:
                     matching_pages.append(page_name)
                 self.nav.item(self.page_rows[page_name]).setHidden(
-                    bool(query) and not bool(matched_fields)
+                    bool(query) and not bool(matched_groups)
                 )
 
             if not query:
@@ -451,6 +558,10 @@ class SideTabs(QWidget):
             )
         finally:
             self._updating_search = False
+
+    def _field_changed(self):
+        if self.overridden.isChecked():
+            self.update_search_results(self.search.text())
 
 
 # Sidebar layout: section heading -> page names (any page not listed ends up under "Other").

@@ -6,7 +6,7 @@ import warnings
 
 from .common import (
     MISSING, QColorDialog, QDoubleSpinBox, QFont, QHBoxLayout, QLineEdit,
-    QPlainTextEdit, QPushButton, QSizePolicy, QSpinBox, QToolButton,
+    QPlainTextEdit, QPushButton, Signal, QSizePolicy, QSpinBox, QToolButton,
     QVBoxLayout, QWidget, WheelSafeComboBox, delp, getp, hexof, putp, py,
     qcolor, tomlkit, totext,
 )
@@ -77,6 +77,8 @@ def installed_cursor_themes():
 
 class FieldWidget(QWidget):
     """The editor widget for one Field: a spinbox, checkbox, dropdown, text box or color button, plus an optional 'set' checkbox."""
+    valueChanged = Signal()
+
     def __init__(self, field, current, schema_path=None):
         """Create the right widget for the field kind and fill it with the current config value (or the default if the key is missing)."""
         super().__init__()
@@ -276,6 +278,7 @@ class FieldWidget(QWidget):
         if self.tri:
             self.w.setAccessibleName(field.label)
             self.w.setCurrentIndex(0 if current is MISSING else (1 if py(current) else 2))
+            self.w.valueChanged.connect(self.valueChanged)
             return
         if current is MISSING:
             self.set_value(self.default)
@@ -298,6 +301,35 @@ class FieldWidget(QWidget):
         if k == "raw":
             self.w.textChanged.connect(self.update_raw_feedback)
             self.update_raw_feedback()
+        if self.check is not None:
+            self.check.toggled.connect(self.valueChanged)
+        if k == "bool":
+            self.w.toggled.connect(self.valueChanged)
+        elif k in ("int", "float"):
+            self.w.valueChanged.connect(self.valueChanged)
+        elif k in ("choice", "combo"):
+            self.w.currentTextChanged.connect(self.valueChanged)
+        elif k == "raw":
+            self.w.textChanged.connect(self.valueChanged)
+        elif k not in ("color", "command_list"):
+            self.w.textChanged.connect(self.valueChanged)
+
+    def is_overridden(self):
+        """Compare the editable value with its schema or field default."""
+        try:
+            value = self.get()
+        except ValueError:
+            return True
+        if value is None:
+            return False
+        if self.f.kind == "color" and self.default is not None:
+            try:
+                value_color = qcolor(value)
+                default_color = qcolor(self.default)
+                return value_color != default_color
+            except (TypeError, ValueError):
+                return py(value) != py(self.default)
+        return py(value) != py(self.default)
 
     def pick_color(self):
         """Open the color dialog (with alpha) and apply the chosen color."""
@@ -320,6 +352,7 @@ class FieldWidget(QWidget):
             self.opacity_spin.blockSignals(True)
             self.opacity_spin.setValue(alpha / 255)
             self.opacity_spin.blockSignals(False)
+        self.valueChanged.emit()
 
     def set_opacity(self, value):
         color = qcolor(self.w.text())
@@ -486,12 +519,14 @@ class FieldWidget(QWidget):
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         entry = QLineEdit(command)
+        entry.textChanged.connect(self.valueChanged)
         entry.setMinimumWidth(420)
         layout.addWidget(entry, 1)
         remove_button = QPushButton("Remove")
         remove_button.clicked.connect(lambda: self.remove_command_row(row))
         layout.addWidget(remove_button)
         self.command_rows.insertWidget(self.command_rows.count() - 1, row)
+        self.valueChanged.emit()
 
     def add_command(self):
         """Add a blank command entry to the autostart list."""
@@ -502,6 +537,7 @@ class FieldWidget(QWidget):
         self.command_rows.removeWidget(row)
         row.setParent(None)
         row.deleteLater()
+        self.valueChanged.emit()
 
 
 def apply_fields(c, fws):

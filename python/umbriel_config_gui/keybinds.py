@@ -383,6 +383,7 @@ class KeybindEditor(QWidget):
         for row in range(self.t.rowCount()):
             box = self.t.cellWidget(row, 1)
             if box.currentText() == old_name:
+                box.addItem(new_name)
                 box.setCurrentText(new_name)
         self.refresh_group_controls()
         self.group_filter.setCurrentText(new_name)
@@ -396,10 +397,10 @@ class KeybindEditor(QWidget):
             self,
             "Delete keybind group",
             f'Delete "{name}"? Its keybinds will become ungrouped.',
-            QMessageBox.StandardButton.Delete | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
-        if answer != QMessageBox.StandardButton.Delete:
+        if answer != QMessageBox.StandardButton.Yes:
             return
         self.group_names.remove(name)
         for row in range(self.t.rowCount()):

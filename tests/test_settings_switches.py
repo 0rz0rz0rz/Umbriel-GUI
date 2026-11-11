@@ -23,12 +23,12 @@ class SettingsSwitchTests(unittest.TestCase):
         self.addCleanup(switch.close)
         self.app.processEvents()
 
-        for x in (4, 12, 22, 32, 38):
+        for x in (4, 10, 17, 25, 30):
             with self.subTest(x=x):
                 switch.setChecked(False)
-                QTest.mouseClick(switch, Qt.MouseButton.LeftButton, pos=QPoint(x, 13))
+                QTest.mouseClick(switch, Qt.MouseButton.LeftButton, pos=QPoint(x, 11))
                 self.assertTrue(switch.isChecked())
-                QTest.mouseClick(switch, Qt.MouseButton.LeftButton, pos=QPoint(x, 13))
+                QTest.mouseClick(switch, Qt.MouseButton.LeftButton, pos=QPoint(x, 11))
                 self.assertFalse(switch.isChecked())
 
     def test_release_outside_and_disabled_switch_do_not_toggle(self):
@@ -38,11 +38,11 @@ class SettingsSwitchTests(unittest.TestCase):
         self.addCleanup(switch.close)
         self.app.processEvents()
 
-        QTest.mousePress(switch, Qt.MouseButton.LeftButton, pos=QPoint(38, 13))
-        QTest.mouseRelease(switch, Qt.MouseButton.LeftButton, pos=QPoint(45, 13))
+        QTest.mousePress(switch, Qt.MouseButton.LeftButton, pos=QPoint(30, 11))
+        QTest.mouseRelease(switch, Qt.MouseButton.LeftButton, pos=QPoint(35, 11))
         self.assertFalse(switch.isChecked())
         switch.setEnabled(False)
-        QTest.mouseClick(switch, Qt.MouseButton.LeftButton, pos=QPoint(38, 13))
+        QTest.mouseClick(switch, Qt.MouseButton.LeftButton, pos=QPoint(30, 11))
         self.assertFalse(switch.isChecked())
 
     def test_optional_field_switch_enables_and_disables_editor(self):
@@ -53,7 +53,7 @@ class SettingsSwitchTests(unittest.TestCase):
 
         switch = widget.check
         self.assertFalse(widget.w.isEnabled())
-        QTest.mouseClick(switch, Qt.MouseButton.LeftButton, pos=QPoint(38, 13))
+        QTest.mouseClick(switch, Qt.MouseButton.LeftButton, pos=QPoint(30, 11))
         self.assertTrue(widget.w.isEnabled())
         QTest.keyClick(switch, Qt.Key.Key_Space)
         self.assertFalse(widget.w.isEnabled())
@@ -73,18 +73,19 @@ class SettingsSwitchTests(unittest.TestCase):
                 with self.subTest(control=control_type.__name__, index=index):
                     control.setCurrentIndex(index)
                     image = control.grab().toImage()
-                    left = 3 + 78 * index
-                    for y in (4, 34):
-                        self.assertEqual(image.pixelColor(left + 39, y).name(), "#00ff00")
-                        for offset, rounded in ((1, index == 0), (76, index == 2)):
+                    segment = (control.width() - 6) // 3
+                    left = 3 + segment * index
+                    for y in (4, control.height() - 6):
+                        self.assertEqual(image.pixelColor(left + segment // 2, y).name(), "#00ff00")
+                        for offset, rounded in ((1, index == 0), (segment - 2, index == 2)):
                             color = image.pixelColor(left + offset, y).name()
                             if rounded:
                                 self.assertNotEqual(color, "#00ff00")
                             else:
                                 self.assertEqual(color, "#00ff00")
-                    for x in (left - 3, left + 80):
+                    for x in (left - 3, left + segment + 2):
                         if 0 <= x < image.width():
-                            self.assertNotEqual(image.pixelColor(x, 19).name(), "#00ff00")
+                            self.assertNotEqual(image.pixelColor(x, control.height() // 2).name(), "#00ff00")
 
 
 if __name__ == "__main__":

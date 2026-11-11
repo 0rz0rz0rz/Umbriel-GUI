@@ -31,7 +31,7 @@ class CollapsibleGroup(QGroupBox):
         self.search_original_expanded = None
         self.body = QWidget()
         self.setObjectName("settingsCard")
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.setStyleSheet(
             "QGroupBox#settingsCard {"
             " background: palette(window);"
@@ -49,8 +49,8 @@ class CollapsibleGroup(QGroupBox):
             self.setAccessibleDescription(description)
         self.form = QFormLayout(self.body)
         self.form.setHorizontalSpacing(16)
-        self.form.setVerticalSpacing(10)
-        self.form.setContentsMargins(16, 4, 16, 12)
+        self.form.setVerticalSpacing(5)
+        self.form.setContentsMargins(12, 2, 12, 10)
         self.form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         self.form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
@@ -61,7 +61,7 @@ class CollapsibleGroup(QGroupBox):
         self.header_background = QWidget()
         self.header_background.setObjectName("settingsCardHeader")
         header_row = QHBoxLayout(self.header_background)
-        header_row.setContentsMargins(10, 0, 10, 0)
+        header_row.setContentsMargins(8, 0, 8, 0)
         if collapsible:
             header = QPushButton()
             self.header = header
@@ -72,6 +72,7 @@ class CollapsibleGroup(QGroupBox):
             header.setFlat(True)
             header_font = QFont(header.font())
             header_font.setPointSize(SETTING_SECTION_BUTTON_FONT_SIZE)
+            header_font.setBold(True)
             header.setFont(header_font)
             header.setStyleSheet(
                 "QPushButton { text-align: left; background: transparent; border: 2px solid transparent; }"
@@ -259,7 +260,7 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
     page = QWidget()
     page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     page_layout = QHBoxLayout(page)
-    page_layout.setContentsMargins(18, 12, 18, 12)
+    page_layout.setContentsMargins(18, 4, 18, 10)
     page_layout.setSpacing(0)
     content = QWidget()
     content.setMinimumWidth(0)
@@ -267,7 +268,7 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
     page_layout.addWidget(content, 1)
     v = QVBoxLayout(content)
     v.setContentsMargins(0, 0, 0, 0)
-    v.setSpacing(10)
+    v.setSpacing(8)
 
     overview = OverviewButton()
     overview.setObjectName("settingsOverview")
@@ -326,6 +327,11 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
     group_layout = QVBoxLayout(group_page)
     group_layout.setContentsMargins(0, 0, 0, 0)
     group_layout.setSpacing(8)
+    filter_notice = QLabel("No settings differ from their defaults.")
+    filter_notice.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+    filter_notice.setWordWrap(True)
+    filter_notice.hide()
+    group_layout.addWidget(filter_notice)
     for title, fields in groups:
         n_set = sum(1 for f in fields if getp(doc, f.path) is not MISSING)
         group_description = GROUP_HELP.get(title)
@@ -335,10 +341,13 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
         if group_description is None:
             group_description = f"Settings for {title.lower()}."
         box = CollapsibleGroup(title, n_set, collapsible, group_description)
+        box.filter_notice = filter_notice
         section_groups.append(box)
         if box.header is not None:
             if title in saved_expansion_states:
                 box.setExpanded(saved_expansion_states[title])
+            else:
+                box.setExpanded(True)
 
             def save_expansion(expanded, group=box, group_title=title):
                 if group.search_original_expanded is None:
@@ -407,33 +416,29 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
         section_button = QToolButton()
         section_button.setText(title)
         section_button.setCheckable(True)
+        section_button.setChecked(box.header.isChecked() if box.header is not None else True)
         section_button.setAutoRaise(True)
         section_button.setFixedHeight(SETTING_SECTION_BUTTON_HEIGHT)
         section_font = QFont(section_button.font())
         section_font.setPointSize(SETTING_SECTION_BUTTON_FONT_SIZE)
         section_button.setFont(section_font)
-        section_button.setToolTip(f"Toggle {title}")
+        section_button.setToolTip(f"Expand or collapse {title}" if box.header is not None else f"Go to {title}")
         section_button.setStyleSheet(
             "QToolButton {"
             " border: 1px solid palette(midlight);"
             " border-radius: 9px;"
             " padding: 4px 10px;"
             " background: palette(window);"
-            "}"
-            "QToolButton:hover { background: palette(midlight); }"
-            "QToolButton:checked {"
-            " background: palette(highlight);"
-            " color: palette(highlighted-text);"
-            " border-color: palette(highlight);"
-            " font-weight: 600;"
-            "}"
-            "QToolButton:!checked {"
             " color: palette(text);"
             "}"
+            "QToolButton:checked {"
+            " border-color: palette(highlight);"
+            " background: palette(highlight);"
+            " color: palette(highlighted-text);"
+            "}"
+            "QToolButton:hover { border-color: palette(text); }"
         )
-        section_button.setChecked(
-            box.header.isChecked() if box.header is not None else True
-        )
+        box.section_button = section_button
         section_buttons.append(section_button)
         section_layout.addWidget(section_button)
 
@@ -448,19 +453,18 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
     sections_scroll.setWidget(group_page)
     v.addWidget(sections_scroll, 1)
 
-    def navigate_to_group(index, toggle=False):
+    def navigate_to_group(index, checked):
         group = section_groups[index]
-        if group.header is not None and toggle:
-            group.setExpanded(not group.header.isChecked())
-        elif group.header is None:
+        if group.header is not None:
+            group.setExpanded(checked)
+        else:
             section_buttons[index].setChecked(True)
-        sections_scroll.ensureWidgetVisible(group, 0, 12)
+        if checked or group.header is None:
+            sections_scroll.ensureWidgetVisible(group, 0, 12)
 
     for index, (group, button) in enumerate(zip(section_groups, section_buttons)):
         button.clicked.connect(
-            lambda _checked=False, group_index=index: navigate_to_group(
-                group_index, toggle=True
-            )
+            lambda checked, group_index=index: navigate_to_group(group_index, checked)
         )
         if group.header is not None:
             group.header.toggled.connect(button.setChecked)

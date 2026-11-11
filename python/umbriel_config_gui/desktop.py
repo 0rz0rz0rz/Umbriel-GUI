@@ -1,18 +1,17 @@
 """Editors for XDG user folders and default applications."""
 
 from .common import (
-    QAbstractItemView,
     QComboBox,
     QFileDialog,
     QFont,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMessageBox,
+    QPalette,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
     Qt,
@@ -25,7 +24,8 @@ from .common import (
     shutil,
     write_text_file,
 )
-from .tables import tidy_table
+from .settings_layout import CollapsibleGroup
+from .widgets import SettingLabel, SettingRow, WrappedLabel
 
 
 # ------------------------------------------------------------ user folders
@@ -121,6 +121,16 @@ def create_app_selector(apps, app_id):
     selector = WheelSafeComboBox()
     selector.setEditable(True)
     selector.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+    selector.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    selector.setMinimumContentsLength(32)
+    populate_app_selector(selector, apps, app_id)
+    return selector
+
+
+def populate_app_selector(selector, apps, app_id):
+    """Refresh a selector without replacing it or losing its current ID."""
+    signals_blocked = selector.blockSignals(True)
+    selector.clear()
     selector.addItem("", "")
     for desktop_id, name in apps:
         selector.addItem(f"{name} ({desktop_id})", desktop_id)
@@ -130,7 +140,7 @@ def create_app_selector(apps, app_id):
         selected_index = selector.count() - 1
     if selected_index >= 0:
         selector.setCurrentIndex(selected_index)
-    return selector
+    selector.blockSignals(signals_blocked)
 
 
 def selected_app_id(selector):
@@ -254,39 +264,55 @@ class UserDirs(QWidget):
         user_dirs_help_font.setPointSize(9)
         user_dirs_help.setFont(user_dirs_help_font)
         lay.addWidget(user_dirs_help)
-        self.t = QTableWidget(len(names), 3)
-        tidy_table(self.t)
-        self.t.setHorizontalHeaderLabels(["Folder", "Path", ""])
-        self.t.horizontalHeaderItem(0).setToolTip("Standard XDG folder name.")
-        self.t.horizontalHeaderItem(1).setToolTip("Filesystem path applications should use for this folder.")
-        self.t.horizontalHeaderItem(2).setToolTip("Choose a folder path.")
-        self.t.horizontalHeader().setStretchLastSection(False)
-        self.t.horizontalHeader().setSectionResizeMode(1, self.t.horizontalHeader().ResizeMode.Stretch)
-        self.t.setColumnWidth(0, 140)
-        self.t.setColumnWidth(2, 90)
-        self.names = names
-        for r, n in enumerate(names):
-            item = QTableWidgetItem(n.capitalize())
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.t.setItem(r, 0, item)
-            self.t.setItem(r, 1, QTableWidgetItem(self.orig.get(n, "")))
-            b = QPushButton("Browse...")
-            b.clicked.connect(lambda _=False, r=r: self.browse(r))
-            self.t.setCellWidget(r, 2, b)
-        lay.addWidget(self.t)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        cards = QVBoxLayout(content)
+        cards.setContentsMargins(0, 0, 0, 0)
+        folder_card = CollapsibleGroup(
+            "User folders", 1,
+            description="Choose paths used by applications for your folders.",
+        )
+        self.path_edits = {}
+        for name in names:
+            title = QLabel(name.capitalize())
+            font = QFont(title.font())
+            font.setBold(True)
+            title.setFont(font)
+            path_edit = QLineEdit(self.orig.get(name, ""))
+            path_edit.setAccessibleName(f"{name.capitalize()} folder path")
+            path_edit.setPlaceholderText("Not set")
+            browse = QPushButton("Browse...")
+            browse.setAccessibleName(f"Browse {name.capitalize()} folder")
+            browse.clicked.connect(lambda _checked=False, key=name: self.browse(key))
+            editor = QWidget()
+            editor_layout = QHBoxLayout(editor)
+            editor_layout.setContentsMargins(0, 0, 0, 0)
+            editor_layout.addWidget(path_edit, 1)
+            editor_layout.addWidget(browse)
+            folder_card.form.addRow(title, editor)
+            self.path_edits[name] = path_edit
+        cards.addWidget(folder_card)
+        cards.addStretch(1)
+        scroll.setWidget(content)
+        lay.addWidget(scroll, 1)
         self.changed = False
 
-    def browse(self, r):
+    def browse(self, name):
         """Pick a folder with the file dialog; paths inside your home are stored as $HOME/..."""
-        cur = self.t.item(r, 1).text().replace("$HOME", os.path.expanduser("~"))
+        cur = self.path_edits[name].text().replace("$HOME", os.path.expanduser("~"))
         d = QFileDialog.getExistingDirectory(self, "Choose folder", cur if os.path.isdir(cur) else os.path.expanduser("~"))
         if d:
             home = os.path.expanduser("~")
-            self.t.item(r, 1).setText(("$HOME" + d[len(home):]) if d == home or d.startswith(home + "/") else d)
+            self.path_edits[name].setText(
+                ("$HOME" + d[len(home):]) if d == home or d.startswith(home + "/") else d
+            )
 
     def values(self):
-        """Return the table contents as {FOLDER: path}."""
-        return {n: self.t.item(r, 1).text().strip() for r, n in enumerate(self.names)}
+        """Return the edited paths as {FOLDER: path}."""
+        return {name: edit.text().strip() for name, edit in self.path_edits.items()}
 
     def validate(self):
         """Reject paths that would break the quoted user-dirs file format."""
@@ -323,20 +349,6 @@ class UserDirs(QWidget):
         self.orig.update({n: v for n, v in vals.items()})
 
 
-class _DefaultAppRolesTable(QTableWidget):
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.resize_mime_column()
-
-    def resize_mime_column(self, *_args):
-        width = max(
-            self.sizeHintForColumn(2),
-            self.viewport().width() - self.columnWidth(0) - self.columnWidth(1),
-        )
-        if self.columnWidth(2) != width:
-            self.setColumnWidth(2, width)
-
-
 class DefaultApps(QWidget):
     """Edits XDG default application associations in the user's mimeapps.list."""
 
@@ -367,99 +379,113 @@ class DefaultApps(QWidget):
         app_controls.addStretch(1)
         layout.addLayout(app_controls)
 
-        layout.addWidget(QLabel("Common app roles"))
-        self.roles = _DefaultAppRolesTable(len(DEFAULT_APP_ROLES), 3)
-        tidy_table(self.roles)
-        self.roles.setHorizontalHeaderLabels(["Role", "Application ID", "MIME types"])
-        self.roles.horizontalHeaderItem(0).setToolTip("Common application purpose.")
-        self.roles.horizontalHeaderItem(1).setToolTip("Desktop-file ID of the default application.")
-        self.roles.horizontalHeaderItem(2).setToolTip("File and URL types assigned to this application role.")
-        self.roles.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.ResizeToContents
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        cards = QVBoxLayout(content)
+        cards.setContentsMargins(0, 0, 0, 0)
+        roles_card = CollapsibleGroup(
+            "Common app roles", 1, description="Choose applications for common tasks."
         )
-        self.roles.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.roles.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Fixed
-        )
-        self.roles.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.roles.horizontalScrollBar().setFixedHeight(8)
         self.role_initial = {}
         self.role_mimes = {}
-        for row, (role, mimes) in enumerate(DEFAULT_APP_ROLES):
+        self.role_selectors = {}
+        for role, mimes in DEFAULT_APP_ROLES:
             values = [self.defaults.get(mime, [""])[0] for mime in mimes]
             value = values[0] if all(item == values[0] for item in values) else "<multiple>"
             self.role_initial[role] = value
             self.role_mimes[role] = mimes
-            role_item = QTableWidgetItem(role)
-            role_item.setFlags(role_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            types_text = ", ".join(mimes)
-            types_item = QTableWidgetItem(types_text)
-            types_item.setFlags(types_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            types_item.setToolTip(types_text)
-            self.roles.setItem(row, 0, role_item)
-            self.roles.setCellWidget(row, 1, create_app_selector(self.apps, value))
-            self.roles.setItem(row, 2, types_item)
-        self.roles.horizontalHeader().sectionResized.connect(self.roles.resize_mime_column)
-        self.roles.resize_mime_column()
-        layout.addWidget(self.roles)
+            title = QLabel(role)
+            font = QFont(title.font())
+            font.setBold(True)
+            title.setFont(font)
+            description = WrappedLabel(", ".join(mimes))
+            description.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+            selector = create_app_selector(self.apps, value)
+            selector.setAccessibleName(f"{role} application")
+            self.role_selectors[role] = selector
+            roles_card.form.addRow(SettingRow(SettingLabel(title, description), selector))
+        cards.addWidget(roles_card)
 
-        layout.addWidget(QLabel("Other MIME type defaults"))
-        self.mime_table = QTableWidget(0, 2)
-        tidy_table(self.mime_table)
-        self.mime_table.setHorizontalHeaderLabels(["MIME type", "Application ID"])
-        self.mime_table.horizontalHeaderItem(0).setToolTip("MIME type or file format to associate.")
-        self.mime_table.horizontalHeaderItem(1).setToolTip("Desktop-file ID of the default application.")
-        self.mime_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
+        self.mime_card = CollapsibleGroup(
+            "Other file types", 0,
+            description="Manage additional MIME type defaults.",
         )
+        self.mime_search = QLineEdit()
+        self.mime_search.setPlaceholderText("Search file types or applications...")
+        self.mime_search.setAccessibleName("Search other file types")
+        self.mime_search.setProperty("dirtyTrackingConnected", True)
+        self.mime_search.textChanged.connect(self._filter_mime_rows)
+        self.mime_card.form.addRow(self.mime_search)
+        self.mime_rows = []
         self.mime_initial = {
             mime: apps[0] if apps else ""
             for mime, apps in self.defaults.items()
             if mime not in ROLE_MIME_TYPES
         }
-        for mime, app_id in sorted(self.mime_initial.items()):
-            self._add_mime_row(mime, app_id)
-        layout.addWidget(self.mime_table)
-
-        buttons = QHBoxLayout()
+        buttons_widget = QWidget()
+        buttons = QHBoxLayout(buttons_widget)
+        buttons.setContentsMargins(0, 0, 0, 0)
         add_button = QPushButton("Add MIME type")
         add_button.clicked.connect(self.add_mime_type)
         add_format_button = QPushButton("Add file format")
         add_format_button.clicked.connect(self.add_file_format)
-        remove_button = QPushButton("Remove selected")
-        remove_button.clicked.connect(self.remove_mime_type)
         buttons.addWidget(add_button)
         buttons.addWidget(add_format_button)
-        buttons.addWidget(remove_button)
         buttons.addStretch(1)
-        layout.addLayout(buttons)
+        self.mime_card.form.addRow(buttons_widget)
+        for mime, app_id in sorted(self.mime_initial.items()):
+            self._add_mime_row(mime, app_id)
+        cards.addWidget(self.mime_card)
+        cards.addStretch(1)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
         self.changed = False
 
     def _add_mime_row(self, mime, app_id):
-        row = self.mime_table.rowCount()
-        self.mime_table.insertRow(row)
-        self.mime_table.setItem(row, 0, QTableWidgetItem(mime))
-        self.mime_table.setCellWidget(row, 1, create_app_selector(self.apps, app_id))
+        mime_edit = QLineEdit(mime)
+        mime_edit.setAccessibleName("MIME type")
+        selector = create_app_selector(self.apps, app_id)
+        selector.setAccessibleName("Application for MIME type")
+        remove = QPushButton("Remove")
+        remove.setAccessibleName(f"Remove {mime}")
+        editor = QWidget()
+        editor_layout = QHBoxLayout(editor)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.addWidget(selector)
+        editor_layout.addWidget(remove)
+        row = SettingRow(mime_edit, editor)
+        self.mime_rows.append((row, mime_edit, selector))
+        self.mime_card.form.insertRow(self.mime_card.form.rowCount() - 1, row)
+        remove.clicked.connect(lambda: self._remove_mime_row(row))
+        self._filter_mime_rows()
+
+    def _remove_mime_row(self, row):
+        self.mime_rows = [entry for entry in self.mime_rows if entry[0] is not row]
+        self.mime_card.form.removeRow(row)
+
+    def _filter_mime_rows(self, *_args):
+        terms = self.mime_search.text().casefold().split()
+        for row, mime_edit, selector in self.mime_rows:
+            text = f"{mime_edit.text()} {selector.currentText()} {selected_app_id(selector)}".casefold()
+            row.setVisible(all(term in text for term in terms))
 
     def refresh_apps(self):
         """Rescan desktop entries and refresh dropdowns without changing current selections."""
         self.apps = installed_desktop_apps()
-        for row in range(self.roles.rowCount()):
-            app_id = selected_app_id(self.roles.cellWidget(row, 1))
-            self.roles.setCellWidget(row, 1, create_app_selector(self.apps, app_id))
-        for row in range(self.mime_table.rowCount()):
-            app_id = selected_app_id(self.mime_table.cellWidget(row, 1))
-            self.mime_table.setCellWidget(row, 1, create_app_selector(self.apps, app_id))
+        for selector in (*self.role_selectors.values(), *(entry[2] for entry in self.mime_rows)):
+            populate_app_selector(selector, self.apps, selected_app_id(selector))
+        self._filter_mime_rows()
 
     def _mime_type_is_listed(self, mime):
         normalized_mime = mime.casefold()
         return (
             normalized_mime in {role_mime.casefold() for role_mime in ROLE_MIME_TYPES}
             or any(
-                self.mime_table.item(row, 0).text().strip().casefold() == normalized_mime
-                for row in range(self.mime_table.rowCount())
+                mime_edit.text().strip().casefold() == normalized_mime
+                for _, mime_edit, _ in self.mime_rows
             )
         )
 
@@ -510,24 +536,16 @@ class DefaultApps(QWidget):
             return
         self._add_mime_row(mime, "")
 
-    def remove_mime_type(self):
-        """Remove the selected MIME type row; saving clears its default association."""
-        row = self.mime_table.currentRow()
-        if row >= 0:
-            self.mime_table.removeRow(row)
-
     def _mime_values(self):
         return {
-            self.mime_table.item(row, 0).text().strip():
-                selected_app_id(self.mime_table.cellWidget(row, 1))
-            for row in range(self.mime_table.rowCount())
+            mime_edit.text().strip(): selected_app_id(selector)
+            for _, mime_edit, selector in self.mime_rows
         }
 
     def validate(self):
         """Reject invalid MIME names and application IDs before writing mimeapps.list."""
-        for row in range(self.roles.rowCount()):
-            role = self.roles.item(row, 0).text()
-            value = selected_app_id(self.roles.cellWidget(row, 1))
+        for role, selector in self.role_selectors.items():
+            value = selected_app_id(selector)
             if value == self.role_initial[role]:
                 continue
             if any(char in value for char in ";\r\n"):
@@ -538,15 +556,14 @@ class DefaultApps(QWidget):
                 raise ValueError(f"{mime or 'MIME type'}: enter a valid type/subtype")
             if app_id and any(char in app_id for char in ";\r\n"):
                 raise ValueError(f"{mime}: invalid application ID")
-        if len(values) != self.mime_table.rowCount():
+        if len({mime.casefold() for mime in values}) != len(self.mime_rows):
             raise ValueError("MIME types must be unique")
 
     def commit(self):
         """Write changed default associations, keeping unrelated mimeapps.list content."""
         updates = {}
-        for row in range(self.roles.rowCount()):
-            role = self.roles.item(row, 0).text()
-            app_id = selected_app_id(self.roles.cellWidget(row, 1))
+        for role, selector in self.role_selectors.items():
+            app_id = selected_app_id(selector)
             if app_id == self.role_initial[role]:
                 continue
             for mime in self.role_mimes[role]:

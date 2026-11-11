@@ -1,5 +1,7 @@
 """Main window, save/validation workflow, and application entry point."""
 
+import stat
+
 from . import state
 from .qt6ct_theme import Qt6ctThemeFollower
 from .common import (
@@ -66,7 +68,8 @@ from .common import (
 )
 from .editors import EntryEditor
 from .desktop import DefaultApps, UserDirs
-from .keybinds import KeybindEditor, write_keybind_groups
+from .keybinds import write_keybind_groups
+from .keybind_ui import KeybindEditor
 from .sidebar import SideTabs, load_sidebar_order
 from .tables import AnimationCurvesPage, EffectsPage, KVTable
 from .field_defs import (
@@ -142,6 +145,48 @@ def group_diff_by_section(diff, new_text):
     return groups
 
 
+def list_backup_snapshots(directory, config_path):
+    """Return regular backup files belonging to the selected config."""
+    prefix = os.path.basename(config_path) + "."
+    try:
+        with os.scandir(directory) as entries:
+            return sorted(
+                os.path.join(directory, entry.name)
+                for entry in entries
+                if entry.name.startswith(prefix)
+                and entry.name.endswith(".bak")
+                and entry.is_file(follow_symlinks=False)
+            )
+    except FileNotFoundError:
+        return []
+
+
+def delete_backup_snapshots(directory, config_path, snapshots):
+    """Delete only marked regular backup files directly inside the backup directory."""
+    directory = os.path.abspath(directory)
+    prefix = os.path.basename(config_path) + "."
+    deleted = []
+    errors = []
+    for snapshot in snapshots:
+        path = os.path.abspath(snapshot)
+        name = os.path.basename(path)
+        if (
+            os.path.dirname(path) != directory
+            or not name.startswith(prefix)
+            or not name.endswith(".bak")
+        ):
+            errors.append(f"{name}: not a valid backup path")
+            continue
+        try:
+            if not stat.S_ISREG(os.lstat(path).st_mode):
+                raise OSError("not a regular file")
+            os.remove(path)
+            deleted.append(name)
+        except OSError as error:
+            errors.append(f"{name}: {error}")
+    return deleted, errors
+
+
 # ----------------------------------------------------------------- main window
 class Window(QMainWindow):
     """Main window: one tab per settings area plus the Save/Reload buttons."""
@@ -161,10 +206,13 @@ class Window(QMainWindow):
         migrate_gui_directory(
             state.PATH + ".backups", os.path.join(config_data_dir, "backups")
         )
-        self.setWindowIcon(create_app_icon())
+        app = QApplication.instance()
+        app_icon = getattr(app, "_umbriel_icon", None) if app is not None else None
+        if app_icon is None or app_icon.isNull():
+            app_icon = create_app_icon()
+        self.setWindowIcon(app_icon)
         self.setWindowTitle(f"{APP_NAME} - {state.PATH}")
         self.resize(1920, 1080)
-        app = QApplication.instance()
         if app is not None:
             app_font = QFont(app.font())
             app_font.setPointSize(10)
@@ -205,8 +253,8 @@ class Window(QMainWindow):
         self.schema_check_button.clicked.connect(self.show_schema_coverage)
         schema_bar.addWidget(self.schema_status, 1)
         schema_bar.addWidget(self.schema_check_button)
-        root.addLayout(schema_bar)
         tabs = SideTabs()
+        tabs.set_schema_bar(schema_bar)
         self.side_tabs = tabs
         root.addWidget(tabs, 1)
 
@@ -539,30 +587,131 @@ class Window(QMainWindow):
         return dialog.exec() == QDialog.DialogCode.Accepted
 
     def restore_backup(self):
-        """Restore a timestamped backup after confirming that unsaved edits may be discarded."""
+        """Show backup snapshots with restore and marked-delete actions."""
         directory = os.path.join(config_gui_data_dir(state.PATH), "backups")
         migrate_gui_directory(state.PATH + ".backups", directory)
         try:
-            snapshots = sorted(
-                os.path.join(directory, name)
-                for name in os.listdir(directory)
-                if name.startswith(os.path.basename(state.PATH) + ".") and name.endswith(".bak")
-            )
-        except FileNotFoundError:
-            snapshots = []
+            snapshots = list_backup_snapshots(directory, state.PATH)
         except OSError as e:
             QMessageBox.warning(self, "Could not list backups", str(e))
             return
         if not snapshots:
             QMessageBox.information(self, "No backups", "No saved backup snapshots are available yet.")
             return
-        labels = [os.path.basename(snapshot) for snapshot in reversed(snapshots)]
-        selected, accepted = QInputDialog.getItem(
-            self, "Restore backup", "Choose a saved config snapshot:", labels, 0, False
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Config backups")
+        dialog.resize(520, 360)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            "Select a snapshot to restore, or mark one or more snapshots to delete."
+        ))
+        status_label = QLabel()
+        layout.addWidget(status_label)
+        backup_list = QListWidget()
+        layout.addWidget(backup_list, 1)
+        select_all_button = QPushButton("Select all")
+        layout.addWidget(select_all_button, 0, Qt.AlignmentFlag.AlignRight)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        restore_button = buttons.addButton(
+            "Restore selected", QDialogButtonBox.ButtonRole.AcceptRole
         )
-        if not accepted:
-            return
-        snapshot = snapshots[-1 - labels.index(selected)]
+        delete_button = buttons.addButton(
+            "Delete marked", QDialogButtonBox.ButtonRole.DestructiveRole
+        )
+        layout.addWidget(buttons)
+
+        def refresh_backups():
+            try:
+                available = list_backup_snapshots(directory, state.PATH)
+            except OSError as error:
+                QMessageBox.warning(dialog, "Could not list backups", str(error))
+                available = []
+            backup_list.clear()
+            for snapshot in reversed(available):
+                item = QListWidgetItem(os.path.basename(snapshot))
+                item.setData(Qt.ItemDataRole.UserRole, snapshot)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                backup_list.addItem(item)
+            if backup_list.count():
+                backup_list.setCurrentRow(0)
+            update_actions()
+
+        def update_actions(*_args):
+            restore_button.setEnabled(backup_list.currentItem() is not None)
+            checked_count = sum(
+                backup_list.item(index).checkState() == Qt.CheckState.Checked
+                for index in range(backup_list.count())
+            )
+            delete_button.setEnabled(checked_count > 0)
+            select_all_button.setText(
+                "Deselect all"
+                if backup_list.count() and checked_count == backup_list.count()
+                else "Select all"
+            )
+
+        def toggle_all():
+            check_state = (
+                Qt.CheckState.Unchecked
+                if backup_list.count()
+                and all(
+                    backup_list.item(index).checkState() == Qt.CheckState.Checked
+                    for index in range(backup_list.count())
+                )
+                else Qt.CheckState.Checked
+            )
+            for index in range(backup_list.count()):
+                backup_list.item(index).setCheckState(check_state)
+
+        def restore_selected():
+            item = backup_list.currentItem()
+            if item is not None and self._restore_backup_snapshot(
+                item.data(Qt.ItemDataRole.UserRole)
+            ):
+                dialog.accept()
+
+        def delete_marked():
+            marked = [
+                backup_list.item(index).data(Qt.ItemDataRole.UserRole)
+                for index in range(backup_list.count())
+                if backup_list.item(index).checkState() == Qt.CheckState.Checked
+            ]
+            if not marked:
+                return
+            answer = QMessageBox.question(
+                dialog,
+                "Delete config backups",
+                f"Delete {len(marked)} marked backup snapshot(s)? This cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            deleted, errors = delete_backup_snapshots(directory, state.PATH, marked)
+            refresh_backups()
+            if deleted:
+                status_label.setText(f"Deleted {len(deleted)} backup snapshot(s).")
+            if errors:
+                QMessageBox.warning(
+                    dialog,
+                    "Could not delete all backups",
+                    "Deleted "
+                    f"{len(deleted)} backup(s). The following could not be deleted:\n"
+                    + "\n".join(errors),
+                )
+
+        backup_list.currentItemChanged.connect(update_actions)
+        backup_list.itemChanged.connect(update_actions)
+        select_all_button.clicked.connect(toggle_all)
+        buttons.accepted.connect(restore_selected)
+        buttons.rejected.connect(dialog.reject)
+        delete_button.clicked.connect(delete_marked)
+        refresh_backups()
+        dialog.exec()
+
+    def _restore_backup_snapshot(self, snapshot):
+        """Restore one timestamped backup after confirming unsaved edits may be discarded."""
         try:
             load_config_document(snapshot)
         except ConfigLoadError as e:
@@ -585,9 +734,10 @@ class Window(QMainWindow):
                 write_text_file(state.PATH, backup.read())
         except OSError as e:
             QMessageBox.critical(self, "Could not restore backup", str(e))
-            return
+            return False
         self._dirty = False
         self.reopen()
+        return True
 
     def closeEvent(self, event):
         """Ask whether to save or discard edits before closing the window."""
@@ -1172,6 +1322,7 @@ def main(argv=None):
     app.palette_readability = PaletteReadability(app)
     apply_interaction_styles(app)
     app_icon = create_app_icon()
+    app._umbriel_icon = app_icon
     app.setWindowIcon(app_icon)
     try:
         install_desktop_icon(app_icon)
@@ -1187,7 +1338,6 @@ def main(argv=None):
         QMessageBox.critical(None, "Cannot open config", str(e))
         return 1
     app.win.show()
-    app.win.side_tabs.preloadPages()
     return app.exec()
 
 

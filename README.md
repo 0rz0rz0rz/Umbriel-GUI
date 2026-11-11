@@ -7,10 +7,18 @@ A desktop app for editing an Umbriel TOML config, keeping existing comments and 
 ## Features
 
 - General, appearance, colors, animation, input, layout and workspace settings
-- Keybinds with custom groups, filtering, bulk locking and action help
+- Keybind list and detail editor with dynamically sized collapsible group cards, concise action descriptions, filtering, bulk locking and action help
 - Animation curves, effect presets and pools; outputs, rules, scratchpads, input-device overrides and environment variables
+- Drag the divider between an entry list and its settings to resize either pane;
+  long entry names can be scrolled horizontally.
 - XDG user folders, default applications and MIME associations
 - Sliders for bounded settings, using installed Umbriel schema ranges when available
+- The **Overridden** switch filters setting fields to values different from their
+  schema defaults (or the GUI defaults when schema metadata is unavailable).
+  Unset optional fields are hidden; non-field editors are not filtered.
+  Inherited values from included configs are not resolved by this filter.
+- Section shortcuts expand or collapse their cards and scroll to newly opened
+  sections. Cards start expanded unless their previous expansion state was saved.
 - Title-bar background opacity controls, stored in the existing color values
 - Installed or custom cursor themes; **Schema coverage...** compares fields with the installed schema
 
@@ -18,12 +26,20 @@ Cursor themes are discovered when opening Input using `XCURSOR_PATH`, or
 `~/.icons`, XDG icon directories and `/usr/share/pixmaps` if unset. Reopen the
 app to pick up newly installed themes.
 
+## Keybinds
+
+Select a shortcut in a collapsible group to edit its action and options. Search
+matches shortcuts, group names, action descriptions and raw actions; the full
+action is also available in the tooltip. Locked bindings show a key icon and
+cannot be edited or removed until unlocked. Deleting a group moves its bindings
+to **Ungrouped** without deleting or unlocking them.
+
 ## Versions
 
 | Item | Version |
 | --- | --- |
 | Python GUI (`python/umbriel_config_gui/__init__.py`) | `0.1.0-002` |
-| AppImage (latest release) | `v0.1.0-001` |
+| AppImage (latest release) | `0.1.0-002` |
 
 The version format is `<Umbriel version>-<three-digit GUI revision>`.
 
@@ -36,14 +52,17 @@ The GUI also edits:
 
 `$XDG_CONFIG_HOME` is respected. Unrelated entries and comments are preserved,
 unset options are not written, and desktop settings are saved separately after
-you accept the config diff.
+you accept the config diff. **User folders** provides editable paths and folder
+pickers in a settings card. **Default apps** groups common roles into cards;
+expand **Other file types** to search and edit individual MIME associations.
+Application selectors also accept custom desktop-file IDs.
 
 ## Saving safely
 
 - Review a diff before saving (on by default). External edits are detected and can be reloaded.
 - Umbriel CLI validation runs after saving; disable it with the checkbox or `--no-validate`. It is skipped if Umbriel is not on `PATH`. Errors restore the previous file; warnings are reported.
 - Files with GUI section banners can be regrouped on save, which may move comments. Disable **Rebuild file structure on save** to keep the layout.
-- **Backups...** restores timestamped TOML backups; separately saved desktop settings are not rolled back.
+- **Backups...** lists timestamped TOML snapshots. Select one to restore, or check snapshots (using **Select all** / **Deselect all** if needed) and choose **Delete marked**; deletion requires confirmation and cannot be undone. Separately saved desktop settings are not rolled back.
 
 GUI-only data (backups, labels, last config path) lives in `~/.local/share/umbriel-config-gui` (or `$XDG_DATA_HOME/umbriel-config-gui`); data from the old `umbriel_config_gui/data` location is migrated automatically. Custom keybind groups are stored as TOML comments, which Umbriel ignores.
 

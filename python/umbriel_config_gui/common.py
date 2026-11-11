@@ -57,6 +57,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__, state
+from .interaction_styles import apply_interaction_styles
 
 DEFAULT_CONFIG_PATH = state.DEFAULT_CONFIG_PATH
 APP_NAME = "Umbriel Settings"
@@ -413,21 +414,6 @@ class PaletteReadability(QObject):
         if obj is self.app and event.type() == QEvent.Type.ApplicationPaletteChange:
             self.adjust()
         return False
-
-
-def apply_interaction_styles(app):
-    """Make interactive controls show a consistent two-pixel highlight on hover."""
-    app.setStyleSheet(
-        "QPushButton:hover, QToolButton:hover {"
-        " border: 2px solid palette(highlight);"
-        " border-radius: 5px;"
-        "}"
-        "QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover,"
-        " QPlainTextEdit:hover {"
-        " border: 2px solid palette(highlight);"
-        " border-radius: 5px;"
-        "}"
-    )
 
 
 def install_desktop_icon(icon):

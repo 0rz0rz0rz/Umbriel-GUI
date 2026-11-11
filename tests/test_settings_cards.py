@@ -3,7 +3,7 @@ import unittest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QTreeView, QVBoxLayout, QWidget
 
 from umbriel_config_gui.common import apply_interaction_styles
 from umbriel_config_gui.settings_layout import CollapsibleGroup
@@ -89,6 +89,35 @@ class SettingsCardTests(unittest.TestCase):
         self.assertEqual(image.pixelColor(image.width() // 2, 0).name(), "#00ff00")
         self.assertNotEqual(image.pixelColor(0, 0).name(), "#00ff00")
         self.assertNotEqual(image.pixelColor(image.width() - 1, 0).name(), "#00ff00")
+
+    def test_cards_keep_content_height_when_other_sections_collapse(self):
+        parent = QWidget()
+        layout = QVBoxLayout(parent)
+        first = CollapsibleGroup("First", 1)
+        second = CollapsibleGroup("Second", 1)
+        for card in (first, second):
+            view = QTreeView()
+            view.setFixedHeight(40)
+            card.form.addRow(view)
+            layout.addWidget(card)
+        layout.addStretch()
+        parent.resize(500, 700)
+        parent.show()
+        self.addCleanup(parent.close)
+        QTest.qWait(20)
+        initial_height = first.height()
+        self.assertLessEqual(initial_height, first.sizeHint().height() + 2)
+        second.setExpanded(False)
+        QTest.qWait(20)
+        self.assertEqual(first.height(), initial_height)
+        self.assertLessEqual(second.height(), second.sizeHint().height() + 2)
+        parent.resize(500, 900)
+        QTest.qWait(20)
+        self.assertEqual(first.height(), initial_height)
+        second.setExpanded(True)
+        QTest.qWait(20)
+        self.assertEqual(first.height(), initial_height)
+        self.assertTrue(second.body.isVisible())
 
     def test_hovering_header_and_arrow_highlights_and_clears(self):
         parent = QWidget()

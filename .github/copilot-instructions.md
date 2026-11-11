@@ -11,7 +11,7 @@ Keep responses and changes small; the rules below exist to save tokens and credi
 
 ## Navigating the code
 
-- Module map: field specs `field_defs.py`, schema `schema.py`, shared controls `widgets.py`, field widgets `field_widget.py`, settings help `setting_help.py`, page layout `settings_layout.py`, tables `tables.py`, keybinds `keybinds.py`, user dirs/default apps `desktop.py`, sidebar `sidebar.py`, entry editor `editors.py`. Largest: `window.py` and `common.py` (~1000-1200 lines). Never read them whole. Use grep for `^class |^def |    def ` to locate a symbol, then view only that range.
+- Module map: field specs `field_defs.py`, schema `schema.py`, shared controls `widgets.py`, field widgets `field_widget.py`, settings help `setting_help.py`, page layout `settings_layout.py`, tables `tables.py`, keybind logic `keybinds.py`, keybind UI `keybind_ui.py`, user dirs/default apps `desktop.py`, sidebar `sidebar.py`, sidebar pictograms `sidebar_icons.py`, entry editor `editors.py`. Largest: `window.py` and `common.py` (over 1000 lines). Never read them whole. Use grep for `^class |^def |    def ` to locate a symbol, then view only that range.
 - Ignore `__pycache__/`, `dist/`, `.venv/`, and the binary assets.
 
 ### Quick lookup (what lives where and how it connects)
@@ -19,6 +19,7 @@ Keep responses and changes small; the rules below exist to save tokens and credi
 | Need to change | Module | Key symbols |
 | --- | --- | --- |
 | App start, CLI, load/save flow | `window.py` | `main`, `Window`, `load_config_document`, `group_diff_by_section` |
+| Backup selection, restore and deletion | `window.py` | `Window.restore_backup`, `Window._restore_backup_snapshot`, `list_backup_snapshots`, `delete_backup_snapshots` |
 | Config read/write, TOML edits | `common.py` | `read_config_state`, `rebuild_config`, `getp`/`putp`/`delp`, `create_backup_snapshot`, `parse_cli_args` |
 | Field definitions (what settings exist) | `field_defs.py` | `F`, `Field`, `layout_fields`, `color_group`, `anim`, `regroup` |
 | Schema from installed Umbriel | `schema.py` | `load_umbriel_schema`, `schema_field_catalog`, `check_schema_coverage` |
@@ -27,12 +28,14 @@ Keep responses and changes small; the rules below exist to save tokens and credi
 | Settings pages and collapsible groups | `settings_layout.py` | `form_page`, `CollapsibleGroup`, `SIDEBAR_SECTIONS`, group expansion state |
 | Compatibility imports | `settings.py` | Re-exports settings symbols from their owning modules |
 | Shared controls | `widgets.py` | `SettingRow`, `SettingLabel`, `SwitchCheckBox`, `TriStateControl`, `KdeColorControl`, `SettingSlider`, `FlowLayout` |
+| Application-wide interaction styles | `interaction_styles.py` | `apply_interaction_styles` (re-exported by `common.py`); hover highlights and palette-aware vertical scrollbars |
 | Title bar KDE colors | `kde_titlebar.py` | `read_title_bar_colors`, `KdeTitleBarFollower` |
 | Table and map editors | `tables.py` | `KVTable`, `RawValueMapEditor`, `AnimationCurvesPage`, `EffectsPage` |
-| Keybinds | `keybinds.py` | `KeybindEditor`, `parse_keybind_groups`, `write_keybind_groups` |
+| Keybinds | `keybinds.py`, `keybind_ui.py` | `KeybindEditor` (table-backed logic in `keybinds.py`, collapsible list/detail UI in `keybind_ui.py`), `KeybindItemDelegate`, `parse_keybind_groups`, `write_keybind_groups` |
 | Actions | `actions.py` | `parse_actions`, `build_action_model`, `migrate_action` |
-| Sidebar navigation and search | `sidebar.py` | `SideTabs`, `load_sidebar_order`, search loop (`setRowVisible`) |
-| Entry editor | `editors.py` | `EntryEditor` |
+| Sidebar navigation, search and overridden filter | `sidebar.py`, `field_widget.py` | `SideTabs`, `load_sidebar_order`, `_materialize_search_page`, `_filter_search_results`, `FieldWidget.is_overridden` |
+| Sidebar pictograms | `sidebar_icons.py`, `sidebar.py` | `sidebar_icon`, `_PAGE_PICTOGRAMS`, `_SidebarListWidget.changeEvent` |
+| Entry editor and resizable panes | `editors.py` | `EntryEditor`, `splitter`, `_set_initial_splitter_sizes`, `select`, `commit` |
 | User dirs and default apps | `desktop.py` | `UserDirs`, `DefaultApps`, `update_mimeapps_defaults` |
 | Qt palette from qt6ct/KDE | `qt6ct_theme.py` | `apply_qt6ct_theme`, `Qt6ctThemeFollower`, `build_palette` |
 | Readable palettes, icons, paths | `common.py` | `readable_palette`, `PaletteReadability`, `create_app_icon`, `normalize_config_path` |
@@ -50,19 +53,25 @@ Data flow: `field_defs.py` declares each field; `schema.py` checks it against Um
 | `opt=True` | Row gets an on/off switch (`FieldWidget.check`); `get()` returns `None` when off, so `apply_fields` deletes the key. A `bool` with `opt` becomes a 3-state control (`self.tri`: unset/on/off) |
 | What gets written on save | `apply_fields(doc, fws)` in `field_widget.py`: writes only keys whose value changed (or optional ones); then `add_entry_name_comments` and `rebuild_config` in `common.py` |
 | Save pipeline | `Window.save` in `window.py`: validate editors, `apply_fields`, `tomlkit.dumps`, `rebuild_config`, diff review (`confirm_save_diff`), `create_backup_snapshot`, `write_text_file`, then `umbriel config validate` in the background (`validated`) |
+| Backup manager | `Window.restore_backup` in `window.py` lists per-config snapshots; select one to restore or check several to delete after confirmation. `list_backup_snapshots` and `delete_backup_snapshots` restrict deletion to matching regular files in the backup directory |
 | Dirty tracking | `Window.track_page_changes` and `mark_dirty` |
 | Title bar background/text colors and KDE import | `TITLE_BAR_KEYS`/`BACKGROUND_KEYS` in `kde_titlebar.py`; the `kde_*`, `opacity_*` methods and `KdeColorControl` in `FieldWidget`. Background colors also get an opacity row built in `form_page` (`fw.opacity_widget`/`opacity_row`) |
 | Colors are `#RRGGBB` or `#RRGGBBAA` | `qcolor`/`hexof` in `common.py`; `FieldWidget.set_color` keeps the alpha channel in sync with the opacity slider |
 | Process-wide state (config path, CLI args, schema options) | `state.py`: `PATH`, `_CLI_ARGS`, `ACTIVE_SCHEMA_OPTIONS`. Read as `state.PATH`, never `from state import PATH` (tests patch it) |
 | Per-field schema info | `schema_path` passed to `FieldWidget`, looked up with `field_schema_option` (`schema.py`) |
-| Search across pages | `SideTabs` search loop in `sidebar.py` hides rows with `form.setRowVisible(fw.search_row / fw.opacity_row, ...)`; any extra row added to a form must be hidden there too |
+| Search and overridden filter | `SideTabs` debounces search, builds deferred pages incrementally, and caches fields; entry selection invalidates the affected cache. `FieldWidget.is_overridden` compares the current value to the schema default (or field fallback); unset optional fields are hidden, included configs are not resolved, and non-field editors are not filtered. `valueChanged` refreshes the filter. Search and overridden filtering combine, hiding unmatched groups, section buttons, `fw.search_row` and `fw.opacity_row`; preserve this for extra rows |
+| Section shortcuts and icons | `form_page` links each `section_button` to its card's expansion state; search temporarily opens matching cards and restores their prior state. `sidebar_icons.sidebar_icon` draws monochrome pictograms in palette text/selected colors; `_SidebarListWidget.changeEvent` refreshes them on palette changes |
 | Row layout | `SettingRow(label_widget, editor)` in `widgets.py`; editor row is `FieldWidget`'s `QHBoxLayout`: switch, slider, control, `?` button |
 | GUI-only files (not in the config) | Global `common.GUI_DATA_DIR` (saved config path, sidebar order, group expansion); per-config `config_gui_data_dir(path)` (backups, `gui-labels.json`, locked keybinds) |
-| Entry-style pages (rules, outputs, scratchpads, devices) | `EntryEditor` in `editors.py`, registered with `add_editor(...)` in `Window.__init__` using `WINDOW_RULE_GROUPS`, `OUTPUT_GROUPS`, `SCRATCHPAD`, etc. from `field_defs.py` |
+| Keybind UI and selection | `keybind_ui.KeybindEditor` builds `CollapsibleGroup` cards from the hidden table-backed model. Shared tree selection maps items to table rows via `Qt.ItemDataRole.UserRole`; `_sync_list` and `_select_items` must exclude filtered or collapsed rows. `KeybindItemDelegate` aligns shortcut/description columns and `short_action_description` uses `actions.py`; keep raw actions searchable and available in tooltips |
+| Keybind groups and locks | `keybinds.py` persists groups in TOML comments and locks in the per-config sidecar. Deleting a group unassigns its bindings, which appear under Ungrouped; it does not delete or unlock them. `keybind_ui.py` displays a key icon for locked bindings |
+| User folders UI | `UserDirs` in `desktop.py` uses editable path rows and folder pickers inside a settings card; `commit` preserves unrelated entries. See `test_user_dirs.py` |
+| Default apps UI | `DefaultApps` in `desktop.py` uses `role_selectors` and searchable `mime_rows`; `validate` / `commit` preserve unchanged associations and desktop-file fallbacks. See `test_default_apps.py` |
+| Entry-style pages (rules, outputs, scratchpads, devices, effect presets/pools) | `EntryEditor` in `editors.py` uses a draggable `splitter` with an initial one-third list / two-thirds detail layout. Long labels scroll horizontally; selection, commit and refresh must not reset a user-adjusted split. `EffectsPage` creates two such editors; see `test_entry_editor_layout.py` |
 
 ### Tests and skills
 
-- Tests in `tests/` are one file per area (`test_settings_sliders.py`, `test_settings_switches.py`, `test_save_workflow.py`, `test_kde_titlebar.py`, ...). Patch `state.PATH` and `state.ACTIVE_SCHEMA_OPTIONS` with `patch.object`, not real config files.
+- Tests in `tests/` are one file per area (`test_entry_editor_layout.py`, `test_keybind_ui.py`, `test_user_dirs.py`, `test_default_apps.py`, `test_backups.py`, `test_sidebar.py`, `test_settings_sliders.py`, `test_settings_switches.py`, `test_save_workflow.py`, ...). Patch `state.PATH` and `state.ACTIVE_SCHEMA_OPTIONS` with `patch.object`, not real config files.
 - Skills in `.github/skills/`: `add-setting-field`, `add-test`, `build-appimage`, `edit-controls`, `split-module`, `sync-umbriel-schema`, `verify-changes`.
 - `window.py` and `common.py` are over the 800-line guideline; do not grow them further without using `split-module`. `settings.py` is a small compatibility facade; its implementation lives in `field_widget.py`, `setting_help.py`, and `settings_layout.py`.
 ## Saving credits

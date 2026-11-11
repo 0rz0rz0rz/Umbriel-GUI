@@ -17,6 +17,7 @@ from .common import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QTimer,
     QVBoxLayout,
     QWidget,
     Qt,
@@ -62,8 +63,15 @@ class EntryEditor(QWidget):
         self.labels_key = ".".join(self.path)
         self.custom_labels = load_entry_labels(self.config_path, self.labels_key) if mode == "aot" else []
         self.fws, self.cur = [], -1
-        split = QSplitter()
+        split = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter = split
+        split.setHandleWidth(12)
+        split.setStyleSheet("QSplitter::handle { background: palette(window); }")
         split.setCollapsible(0, False)
+        split.setCollapsible(1, False)
+        self._splitter_initialized = False
+        self._splitter_adjusted = False
+        split.splitterMoved.connect(self._splitter_moved)
         left = QWidget()
         self.left_panel = left
         lv = QVBoxLayout(left)
@@ -90,7 +98,7 @@ class EntryEditor(QWidget):
             lv.addWidget(inspect_button)
         self.list = QListWidget()
         self.list.setSpacing(2)
-        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         lv.addWidget(self.list)
         row = QGridLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -122,23 +130,24 @@ class EntryEditor(QWidget):
         self.scroll.setWidgetResizable(True)
         split.addWidget(left)
         split.addWidget(self.scroll)
-        split.setStretchFactor(0, 0)
+        split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 1)
         QVBoxLayout(self).addWidget(split)
         self.refresh()
         self.list.currentRowChanged.connect(self.select)
 
-    def size_entry_list(self):
-        """Fit the fixed left pane to its longest entry label and controls."""
-        labels = [self.list.item(i).text() for i in range(self.list.count())]
-        labels.append(self.left_panel.findChild(QLabel).text())
-        text_width = max(self.list.fontMetrics().horizontalAdvance(label) for label in labels)
-        list_width = text_width + 40
-        self.list.setFixedWidth(list_width)
-        layout = self.left_panel.layout()
-        margins = layout.contentsMargins()
-        pane_width = max(list_width, layout.sizeHint().width() - margins.left() - margins.right())
-        self.left_panel.setFixedWidth(pane_width + margins.left() + margins.right())
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._splitter_initialized and not self._splitter_adjusted:
+            self._splitter_initialized = True
+            QTimer.singleShot(0, self._set_initial_splitter_sizes)
+
+    def _set_initial_splitter_sizes(self):
+        if not self._splitter_adjusted:
+            self.splitter.setSizes([self.splitter.width() // 3, 2 * self.splitter.width() // 3])
+
+    def _splitter_moved(self, *_args):
+        self._splitter_adjusted = True
 
     # container access
     def container(self, create=False):
@@ -188,7 +197,6 @@ class EntryEditor(QWidget):
         self.list.clear()
         self.list.addItems([self.label(i) for i in range(len(self.entries()))])
         self.list.blockSignals(False)
-        self.size_entry_list()
         self.cur = -1
         if self.list.count():
             self.list.setCurrentRow(min(select, self.list.count() - 1))
@@ -251,7 +259,6 @@ class EntryEditor(QWidget):
         self.custom_labels[i] = name.strip()
         self.save_labels()
         self.list.item(i).setText(self.label(i))
-        self.size_entry_list()
 
     def save_labels(self):
         """Persist custom names, reporting sidecar write failures without affecting the TOML config."""
@@ -272,7 +279,6 @@ class EntryEditor(QWidget):
             item = self.list.item(self.cur)
             if item:
                 item.setText(self.label(self.cur))
-                self.size_entry_list()
 
     def inspect_outputs(self):
         """Discover live output modes and optionally add the selected mode to the config."""

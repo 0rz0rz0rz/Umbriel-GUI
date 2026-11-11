@@ -29,7 +29,7 @@ class SwitchCheckBox(QCheckBox):
     """A native checkbox with a compact switch-shaped indicator."""
 
     def sizeHint(self):
-        return QSize(44, 26)
+        return QSize(34, 22)
 
     def hitButton(self, pos):
         return self.rect().contains(pos)
@@ -37,7 +37,7 @@ class SwitchCheckBox(QCheckBox):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        x, y, width, height = 1, 2, 40, 22
+        x, y, width, height = 1, 2, 30, 18
         palette = self.palette()
         window = palette.color(QPalette.ColorRole.Window)
         text = palette.color(QPalette.ColorRole.WindowText)
@@ -62,7 +62,7 @@ class SwitchCheckBox(QCheckBox):
         if self.hasFocus():
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(palette.color(QPalette.ColorRole.Highlight))
-            painter.drawRoundedRect(x - 1, y - 1, width + 2, height + 2, 12, 12)
+            painter.drawRoundedRect(x - 1, y - 1, width + 2, height + 2, 10, 10)
         event.accept()
 
 
@@ -77,7 +77,7 @@ class TriStateControl(QWidget):
     def __init__(self):
         super().__init__()
         self.setObjectName("triStateControl")
-        self.setFixedSize(240, 40)
+        self.setFixedSize(192, 32)
         self._index = 0
         self._hovered = False
         self.setMouseTracking(True)
@@ -87,7 +87,7 @@ class TriStateControl(QWidget):
         self.setCurrentIndex(0)
 
     def sizeHint(self):
-        return QSize(240, 40)
+        return QSize(192, 32)
 
     def currentIndex(self):
         """Return the selected segment index."""
