@@ -82,7 +82,7 @@ Data flow: `field_defs.py` declares each field; `schema.py` checks it against Um
 - Don't grow files already over 800 lines; split them with the `split-module` skill first.
 - Do not paste long command output; use `| tail -n 15` or `| head -n 30`.
 - Run only the tests needed to validate the change, starting with the smallest relevant selection. If a test fails, add or run focused tests to isolate the cause before broadening the run; run the full suite only when the change or failure scope requires it.
-- Never view `LICENSE`, `docs/screenshot.png`, `appimage/` build output, or generated files.
+- Never view `LICENSE`, `docs/settings-0.1.0-002.png`, `appimage/` build output, or generated files.
 - Ask one concise question only when a choice changes behavior; otherwise decide and state the assumption.
 
 ### Avoid these credit-wasting patterns

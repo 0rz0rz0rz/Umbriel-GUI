@@ -2,7 +2,7 @@
 
 A desktop app for editing an Umbriel TOML config, keeping existing comments and formatting where possible.
 
-![Umbriel Settings screenshot](docs/screenshot.png)
+![Umbriel Settings screenshot](docs/settings-0.1.0-002.png)
 
 ## Features
 
