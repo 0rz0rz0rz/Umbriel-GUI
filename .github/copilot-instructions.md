@@ -69,6 +69,24 @@ Data flow: `field_defs.py` declares each field; `schema.py` checks it against Um
 | Default apps UI | `DefaultApps` in `desktop.py` uses `role_selectors` and searchable `mime_rows`; `validate` / `commit` preserve unchanged associations and desktop-file fallbacks. See `test_default_apps.py` |
 | Entry-style pages (rules, outputs, scratchpads, devices, effect presets/pools) | `EntryEditor` in `editors.py` uses a draggable `splitter` with an initial one-third list / two-thirds detail layout. Long labels scroll horizontally; selection, commit and refresh must not reset a user-adjusted split. `EffectsPage` creates two such editors; see `test_entry_editor_layout.py` |
 
+### Noctalia plugin lookup
+
+The separate Noctalia 5 plugin lives under `noctalia-plugin/`; it does not depend on PySide6 or tomlkit. Its path source is the parent directory and `user-folders/` must match the plugin ID suffix.
+
+| Need to change | File | Key symbols / notes |
+| --- | --- | --- |
+| Plugin identity, entries and API level | `user-folders/plugin.toml`, `user-folders/bar.luau` | `[[widget]]` opens `[[panel]]`; keep the existing panel ID working |
+| Menu, forms and async helper calls | `user-folders/panel.luau` | `render`, `openSection`, `folderRows`, `browseFolder`, `appRows`, `runHelper`, `reload`, `save` |
+| User folder config and shared file IO | `user-folders/user_dirs.py` | `config_path`, `read_document`, `atomic_write`, `validate_changes`, `save` |
+| Default apps and MIME associations | `user-folders/default_apps.py` | `ROLES`, `installed_apps`, `defaults`, `update_text`, `validate_changes`, `save` |
+| Plugin tests | `tests/test_user_dirs.py`, `tests/test_default_apps.py`, `tests/panel_test.lua`, `tests/bar_test.lua` | Python subprocess tests use temporary XDG paths; Lua harnesses mock the Noctalia API |
+| General config settings | `user-folders/general.py`, `user-folders/panel.luau`, `tests/test_general.py` | Six collapsible groups; Python 3.11 `tomllib`, targeted safe edits, revision checks, backup and Umbriel validation |
+| Plugin keybinds | `user-folders/keybinds.py`, `user-folders/keybind_ui.luau`, `tests/test_keybinds.py` | Search and edit config bindings; preserve groups, respect GUI locks, validate and detect conflicts |
+| Launch standalone app | `user-folders/launch_app.py`, `user-folders/panel.luau`, `tests/test_user_dirs.py` | Uses `gio` and the per-user desktop entry; isolates GUI output and reports launch errors |
+| Local setup and API notes | `README.md`, `Noctalia API` | Plugin-relative files; release-specific Noctalia API notes and setup |
+
+Plugin data flow: `panel.luau` invokes the Python helpers through direct argv and JSON, tracks per-section edits/revisions, and renders native Noctalia controls. Helpers preserve unrelated config, reject external changes and symlink targets, and back up existing files in the plugin data directory. `default_apps.py` reuses `user_dirs.py` file IO. See `.github/instructions/noctalia-plugin.instructions.md` and the `edit-noctalia-panel`, `edit-noctalia-desktop-settings`, `test-noctalia-plugin`, and `verify-noctalia-plugin` skills.
+
 ### Tests and skills
 
 - Tests in `tests/` are one file per area (`test_entry_editor_layout.py`, `test_keybind_ui.py`, `test_user_dirs.py`, `test_default_apps.py`, `test_backups.py`, `test_sidebar.py`, `test_settings_sliders.py`, `test_settings_switches.py`, `test_save_workflow.py`, ...). Patch `state.PATH` and `state.ACTIVE_SCHEMA_OPTIONS` with `patch.object`, not real config files.
@@ -112,7 +130,8 @@ Data flow: `field_defs.py` declares each field; `schema.py` checks it against Um
 
 ## Conventions
 
-- Version lives only in `python/umbriel_config_gui/__init__.py` as `<Umbriel version>-<NNN>`.
+- The GUI version lives in `python/umbriel_config_gui/__init__.py` as `<Umbriel version>-<NNN>`; the Noctalia plugin has its own version in `noctalia-plugin/user-folders/plugin.toml`.
+- After changing either the Umbriel or Noctalia version, check both upstream repositories for current versions and release notes/changelogs: [Umbriel](https://github.com/noctalia-dev/umbriel) and [Noctalia](https://github.com/noctalia-dev/noctalia). Also review Noctalia's current [installation documentation](https://docs.noctalia.dev/noctalia/getting-started/installation/) and assess whether this app needs corresponding updates.
 - The project is GPL-3.0-only; keep `LICENSE` and the AppImage license bundling intact.
 - Edits must keep TOML comments and formatting (tomlkit); only write keys the user changed.
 - Comment only code that needs clarification. Do not add planning or notes files.

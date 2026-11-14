@@ -1,0 +1,200 @@
+# Noctalia plugin API notes
+
+Checked 2026-11-14. The installed Noctalia reports `v5.5.0
+(5.5.0-1-dirty)`; GitHub's latest release is v5.5.0, published 2026-11-12.
+These notes are a design investigation; see the plugin README for the prototype.
+
+## Important correction
+
+Noctalia 5 plugins use **Luau scripts and the host's declarative UI**,
+not custom QML. My earlier suggestion that a current native plugin would
+rewrite the UI in QML was wrong. The older Noctalia Shell v4 plugin API
+does use QML and `manifest.json`; it is a separate, legacy target.
+
+The public documentation follows development and may describe features newer
+than a release. Its API-version table currently calls levels 44-54
+"Unreleased", but the v5.5.0 source declares supported levels 3-53.
+For release compatibility, check the exact release source and test on the
+target host rather than relying only on the current documentation table.
+
+## Noctalia 5 plugin structure
+
+- A plugin has `plugin.toml`, one or more `.luau` entry scripts, and optional
+  `translations/<language>.json` and other assets.
+- Required manifest fields include `id` (`author/plugin`), `name`, `version`
+  (`MAJOR.MINOR.PATCH`), and the minimum required `plugin_api` integer.
+  Declare the lowest API level covering all used features.
+- Entry types include `[[widget]]`, `[[shortcut]]`, `[[launcher_provider]]`,
+  `[[desktop_widget]]`, `[[panel]]`, `[[layer]]`, and `[[service]]`.
+  Entries have isolated Luau VMs and are invoked through lifecycle callbacks.
+- Plugin-level `[[setting]]` and `[[panel.setting]]` declare settings exposed
+  by Noctalia. Read declared values with `noctalia.getConfig(key)`. Labels
+  use translation keys. These are plugin preferences, not a general-purpose
+  interface for modifying arbitrary Umbriel configuration.
+- Entries can exchange copied plain values with `noctalia.state.set/get/watch`.
+  This state is in-memory only; use persistent storage for restart recovery.
+  Shared `.luau` modules via relative `require` need API 22.
+
+## Native interface
+
+- A `[[panel]]` renders a retained tree with `panel.render(ui.column(...))`;
+  a bar widget or shortcut can open it with `noctalia.togglePanel(id)`.
+  `onOpen`, `onClose`, and control callbacks implement the interaction.
+- Native controls include rows, columns, scrolling, labels, buttons, inputs,
+  toggles, sliders, selects, color pickers and drag/drop. Palette role names
+  track the host theme. Named or closure callbacks receive values as strings;
+  closures need API 9.
+- Use stable keys for changing lists. Inputs are uncontrolled after creation:
+  save changes from callbacks and change the key to reset an input. Toggles,
+  sliders and selects are value-driven and need their current value on render.
+- Panel dimensions are declared in the manifest, not changed dynamically.
+  Floating panels may use `width = "fill"` and/or `height = "fill"`.
+  Outside-click dismissal can be disabled, but the shell's cancel key still
+  closes a panel. Persistent panels do not currently support `ui.select`.
+  Handle unsaved state and panel closure explicitly.
+- Keyboard capture only accepts declared chords, and Super chords are
+  rejected. Assess how to record arbitrary Umbriel shortcuts without
+  assuming a standard Qt key-capture widget can be reproduced.
+- `ui.colorPicker` supports alpha (API 41); `ui.scroll` supports keyed
+  reveal (API 33). Examine other behavior and performance with a prototype.
+
+## Files, processes and safety
+
+- Plugins are trusted code, not filesystem-sandboxed. `noctalia.readFile`,
+  `writeFile`, `renameFile`, `listDir`, and `pluginDataDir` are available;
+  filesystem calls return errors that must be handled.
+- `readFileAsync` needs API 23, is limited to 4 MiB per read and at most
+  four outstanding reads per runtime; check whether this fits the data.
+- `noctalia.runAsync` can invoke a Python helper and collect `exitCode`,
+  stdout, stderr, timeout and truncation flags in a callback. Check both
+  launch acceptance and results. Its argument-array form (API 24) executes
+  directly without shell parsing and is preferable for user paths and input.
+- Plugin data can go under `noctalia.pluginDataDir()`. The cross-entry state
+  channel is not a substitute for durable storage.
+- Do not assume a generic TOML parser preserves comments. The current app's
+  tomlkit-based edit/save behavior, external-change detection, diff review,
+  backups, validation and rollback need deliberate preservation and tests.
+
+## Feasibility for Umbriel Settings
+
+The prototype uses a native Luau/declarative panel and separate Python
+standard-library helpers. General and Keybinds require Python 3.11 and the
+Umbriel CLI; the standalone launcher additionally uses `gio`. Existing
+PySide6 widgets cannot simply become native Noctalia controls; Python logic
+that depends on Qt may also need extraction.
+
+Full parity remains unverified. The plugin implements desktop settings,
+General and keybind editing, but not every standalone section or keybind group
+management. Large searchable forms, resizable split panes and complex entry
+editors need further assessment. A
+panel is a shell surface, not necessarily equivalent to a resizable desktop
+window. Avoid promising identical UX until these limitations are tested.
+
+For comparison, API 40 has `ui.pixelStream` for companion-process frames;
+investigate its input, protocol and deployment tradeoffs separately. It is
+not the same as rewriting the interface using native host controls.
+
+## Development and distribution
+
+### Local plugin setup for Noctalia 5.5
+
+This minimal example adds a bar widget; it does not implement Umbriel
+Settings. Noctalia must be running for the `msg` commands.
+
+1. Create a plugin directory in the built-in local source:
+
+   ```sh
+   mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/noctalia/plugins/hello"
+   ```
+
+2. Create `plugin.toml` in that directory:
+
+   ```toml
+   id = "me/hello"
+   name = "Hello"
+   version = "1.0.0"
+   plugin_api = 3
+   author = "me"
+
+   [[widget]]
+   id = "hello"
+   entry = "widget.luau"
+   ```
+
+3. Create `widget.luau` alongside the manifest:
+
+   ```lua
+   function update()
+     noctalia.setUpdateInterval(1000)
+     barWidget.setGlyph("puzzle")
+     barWidget.setText("Hello")
+   end
+
+   function onClick()
+     noctalia.notify("Hello", "you clicked me")
+   end
+   ```
+
+4. Check the files, reload discovery, then list and enable the plugin:
+
+   ```sh
+   noctalia plugins lint "${XDG_DATA_HOME:-$HOME/.local/share}/noctalia/plugins/hello"
+   noctalia msg config-reload
+   noctalia msg plugins list
+   noctalia msg plugins enable me/hello
+   ```
+
+   The lint command checks settings references and missing entry files; it
+   does not establish that the plugin works at runtime. Alternatively, enable
+   it in **Settings → Plugins**. Enabling makes the entry available but does
+   not put it on a bar: add `me/hello:hello` with the bar's Add-widget picker.
+   Click the widget to test its notification.
+
+Luau edits hot-reload; reload the config after manifest changes. For a panel
+entry, open or close it with
+`noctalia msg panel-toggle me/hello:<panel-entry-id>`. A service or other
+non-bar entry's `onIpc` can be tested with
+`noctalia msg plugin me/hello:<entry-id> all <event> [payload]`.
+
+Alternatively, keep a directory of plugins elsewhere and add it as a source:
+
+```sh
+noctalia msg plugins source add my-dev path ~/dev/my-plugins
+```
+
+Place each plugin in a direct child directory, for example
+`~/dev/my-plugins/hello/plugin.toml`. A path source without `catalog.toml`
+is scanned for manifests; if a catalog exists, its entries are used instead.
+Local data-dir plugins take precedence over all configured sources for the
+same plugin ID. Path sources are read-only to Noctalia, but may be edited
+directly by the developer. Git source repositories use `catalog.toml`; the
+community plugin repository documents submission rules.
+
+- Plugin `dependencies` are informational: the host does not block enabling
+  a plugin when listed tools are missing. Detect and report missing helpers.
+- API levels are cumulative. Catalog release entries can preserve older
+  compatible plugin revisions for older hosts.
+
+## References
+
+- Current documentation: https://docs.noctalia.dev/noctalia/plugins/development/
+- Manifest: https://docs.noctalia.dev/noctalia/plugins/development/manifest/
+- Entries: https://docs.noctalia.dev/noctalia/plugins/development/entries/
+- UI: https://docs.noctalia.dev/noctalia/plugins/development/declarative-ui/
+- Runtime: https://docs.noctalia.dev/noctalia/plugins/development/runtime-api/
+- API level table: https://docs.noctalia.dev/noctalia/plugins/development/plugin-api/
+- Workflow: https://docs.noctalia.dev/noctalia/plugins/development/workflow/
+- v5.5.0 local development and minimal example:
+  https://github.com/noctalia-dev/noctalia/blob/v5.5.0/docs/user/plugins/development/index.mdx
+  and https://github.com/noctalia-dev/noctalia/blob/v5.5.0/docs/user/plugins/index.mdx
+- v5.5.0 workflow:
+  https://github.com/noctalia-dev/noctalia/blob/v5.5.0/docs/user/plugins/development/workflow.mdx
+- Official examples: https://github.com/noctalia-dev/official-plugins
+- v5.5.0 API bounds:
+  https://github.com/noctalia-dev/noctalia/blob/v5.5.0/src/scripting/plugin_api.h
+- v5.5.0 runtime reference:
+  https://github.com/noctalia-dev/noctalia/blob/v5.5.0/docs/user/plugins/development/runtime-api.mdx
+- Legacy v4 QML plugins:
+  https://docs.noctalia.dev/noctalia-shell-legacy/development/plugins/getting-started/
+- Latest release checked:
+  https://github.com/noctalia-dev/noctalia/releases/tag/v5.5.0

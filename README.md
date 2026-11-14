@@ -38,10 +38,12 @@ to **Ungrouped** without deleting or unlocking them.
 
 | Item | Version |
 | --- | --- |
-| Python GUI (`python/umbriel_config_gui/__init__.py`) | `0.1.0-002` |
+| Python GUI (`python/umbriel_config_gui/__init__.py`) | `0.1.0-003` |
 | AppImage (latest release) | `0.1.0-002` |
+| Noctalia plugin | `0.1.0` |
 
-The version format is `<Umbriel version>-<three-digit GUI revision>`.
+The GUI version format is `<Umbriel version>-<three-digit GUI revision>`;
+the Noctalia plugin is versioned independently.
 
 ## Desktop settings
 
@@ -57,6 +59,13 @@ pickers in a settings card. **Default apps** groups common roles into cards;
 expand **Other file types** to search and edit individual MIME associations.
 Application selectors also accept custom desktop-file IDs.
 
+## Noctalia plugin
+
+The experimental **Umbriel-GUI** plugin provides a Noctalia bar button and
+native General, Keybinds, User Folders and Default Apps panels. It can also
+open the standalone app. See the [plugin README](noctalia-plugin/README.md)
+for setup, requirements, backups and current limitations.
+
 ## Saving safely
 
 - Review a diff before saving (on by default). External edits are detected and can be reloaded.
@@ -64,7 +73,32 @@ Application selectors also accept custom desktop-file IDs.
 - Files with GUI section banners can be regrouped on save, which may move comments. Disable **Rebuild file structure on save** to keep the layout.
 - **Backups...** lists timestamped TOML snapshots. Select one to restore, or check snapshots (using **Select all** / **Deselect all** if needed) and choose **Delete marked**; deletion requires confirmation and cannot be undone. Separately saved desktop settings are not rolled back.
 
-GUI-only data (backups, labels, last config path) lives in `~/.local/share/umbriel-config-gui` (or `$XDG_DATA_HOME/umbriel-config-gui`); data from the old `umbriel_config_gui/data` location is migrated automatically. Custom keybind groups are stored as TOML comments, which Umbriel ignores.
+## Files and folders created
+
+The app respects `$XDG_DATA_HOME` (default `~/.local/share`) and
+`$XDG_CONFIG_HOME` (default `~/.config`). It creates or updates these paths as
+needed:
+
+- The GUI data directory, `$XDG_DATA_HOME/umbriel-config-gui/`, stores
+  `gui-config-path`, `gui-sidebar-order.json`, and `gui-state.json`. It also
+  holds `backups/user-dirs.dirs.bak` and `backups/mimeapps.list.bak` when
+  existing desktop settings are changed.
+- Per-config GUI data is stored in
+  `$XDG_DATA_HOME/umbriel-config-gui/configs/<config-id>/`. It can contain
+  `config.bak`, `gui-labels.json`, `gui-locked-keybinds.json`, and
+  `backups/<config-name>.<timestamp>.bak`.
+- On Linux, desktop integration installs
+  `$XDG_DATA_HOME/applications/umbriel-config-gui.desktop` and
+  `$XDG_DATA_HOME/icons/hicolor/128x128/apps/umbriel-config-gui.png`.
+- The Umbriel config is saved at the selected path (by default
+  `~/.config/umbriel/config.toml`). The **User folders** and
+  **Default apps** pages create or update `$XDG_CONFIG_HOME/user-dirs.dirs`
+  and `$XDG_CONFIG_HOME/mimeapps.list` when their settings are saved.
+
+The app creates parent directories for files it saves. Paths configured for
+Desktop, Documents, Downloads, and other user folders are only recorded in
+`user-dirs.dirs`; the app does not create or move those folders. Custom
+keybind groups are stored as TOML comments, which Umbriel ignores.
 
 ## Requirements
 
@@ -161,6 +195,7 @@ Replace `python/umbriel_config_gui/assets/icon.jpg` with your own JPEG and resta
 ```text
 python/     Python application (launcher, umbriel_config_gui package, requirements.txt)
 appimage/   AppImage build script and recipe (desktop entry, icon, entrypoint)
+noctalia-plugin/   Noctalia plugin, helpers, tests and API notes
 docs/       Screenshots
 ```
 

@@ -1,0 +1,18 @@
+id = "umbriel-settings/user-folders"
+name = "Umbriel-GUI"
+version = "0.1.0"
+plugin_api = 24
+author = "umbriel-settings"
+description = "Edit Umbriel general settings, keybinds, user folders and default applications."
+dependencies = ["python3"]
+
+[[widget]]
+id = "settings"
+entry = "bar.luau"
+
+[[panel]]
+id = "folders"
+entry = "panel.luau"
+width = 560
+height = 650
+dismiss_on_outside_click = false
